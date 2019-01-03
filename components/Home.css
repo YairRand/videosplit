@@ -1,0 +1,26 @@
+body {
+  font-family: arial;
+}
+
+.Home {
+  text-align: center;
+}
+
+.Home-intro {
+  font-size: large;
+}
+
+.VideoBlock {
+  display: inline-block;
+  border: solid 1px #AAA;
+  position: relative;
+}
+
+.VideoBlock video {
+  display: block;
+  border-bottom: dashed 1px #AAA;
+}
+
+button {
+  width: 100%;
+}
