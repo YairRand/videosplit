@@ -33,12 +33,14 @@ app.get( '/split', ( req, res ) => {
 var clicked = 0,
   latestUser = 0,
   users = [],
-  recordings = [];
+  allRecordings = [];
 
 ioServer.on( 'connection', function ( socket ) {
-  var userId = latestUser++;
+  var userId = latestUser++,
+    recordings = [];
   
   socket.emit( 'spoo', 'successfully connected. userId = ' + userId );
+  
   socket.emit( 'in', {
     type: 'startData',
     startData: {
@@ -47,20 +49,24 @@ ioServer.on( 'connection', function ( socket ) {
     }
   } );
   
-  users.push( { userId, socket } );
+  users.push( { userId, socket, recordings } );
   
   socket.broadcast.emit( 'userconnect', userId );
+  
   socket.broadcast.emit( 'in', {
     type: 'userConnect',
     'userConnect': {},
     fromUser: userId
   } );
+  
   socket.broadcast.emit( 'spoo', 'Other user connected: User' + userId );
+  
   socket.on( 'test', msg => {
     console.log( 'test message received by server', clicked, msg );
     clicked++;
     socket.emit( 'test2', 'User' + userId + ': ' + msg + clicked );
   } );
+  
   socket.on( 'toUser', msg => {
     msg.fromUser = userId;
     
@@ -71,17 +77,24 @@ ioServer.on( 'connection', function ( socket ) {
         target.socket.emit( 'in', msg );
       }
     } );
-    //   target = users.find( user => user.userId === msg.toUser );
-    // if ( target && target.socket ) {
-    //   msg.fromUser = userId;
-    //   target.socket.emit( 'in', msg );
-    // }
   } );
+  
   socket.on( 'out', msg => {
+    // TODO: Merge with above, somehow.
     console.log( 'outthing' );
     msg.fromUser = userId;
+    
     socket.broadcast.emit( 'in', msg );
   } );
+  
+  socket.on( 'register_video', ( msg ) => {
+    recordings.push( msg.videoData );
+  } );
+  
+  socket.on( 'request_video', ( { id }, respond ) => {
+    respond( recordings.find( recording => recording.id === id ) );
+  } );
+  
   socket.on( 'disconnect', () => {
     socket.broadcast.emit( 'in', {
       type: 'userDisconnect',

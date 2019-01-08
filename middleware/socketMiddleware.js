@@ -14,13 +14,12 @@ export default store => {
       socket.emit(
         action.toUser ? 'toUser' : 'out',
         // They'll receive it as 'IN', so...
-        { ...action, type: 'IN_' + type }
+        { ...action, type: 'IN_' + type, baseType: type }
       );
       
-      return next( { ...action, type: 'OUT_' + type } );
-    }
-    
-    if ( action.type === 'EMIT' ) {
+      // baseType should be in meta, theoretically.
+      return next( { ...action, type: 'OUT_' + type, baseType: type, meta: { ...action.meta, dir: 'out' } } );
+    } else if ( action.type === 'EMIT' ) {
       return socket.emit( 'out', action.payload );
     } else {
       return next( action ); 

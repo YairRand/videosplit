@@ -9,13 +9,14 @@ export default function createRTCStream( toUser, socket ) {
   // Yeah, this needs a addTrack system. Maybe return { addTrack, stream: Promise() }?
   
   var pc = new RTCPeerConnection(),
-    emit = socket.emit.bind( socket );
+    emit = socket.emit.bind( socket ),
+    tracks = [];
   
   socket.on( 'in', async msg => {
     // We're interested in ld, reLd, and ic, but only when relevant to toUser.
     if ( msg.fromUser === toUser ) {
       switch( msg.type ) {
-        case 'ld':
+        case 'RTC_LD':
           // INCOMING FEEEEED
           var rsd = new RTCSessionDescription( msg.ld );
           
@@ -25,11 +26,11 @@ export default function createRTCStream( toUser, socket ) {
           var answer = await pc.createAnswer();
           await pc.setLocalDescription( answer );
           
-          emit( 'toUser', { toUser, type: 'reLd', reLd: pc.localDescription } );
+          emit( 'toUser', { toUser, type: 'RTC_RELD', reLd: pc.localDescription } );
           console.log( 'handled incoming feed. sending reLd back.' );
           break;
         
-        case 'reLd':
+        case 'RTC_RELD':
           // Received response. Now what?
           var rsd = new RTCSessionDescription( msg.reLd );
           pc.setRemoteDescription( rsd );
@@ -37,7 +38,7 @@ export default function createRTCStream( toUser, socket ) {
           
           break;
         
-        case 'ic':
+        case 'RTC_IC':
           pc.addIceCandidate( new RTCIceCandidate( msg.ic ) );
           break;
       }
@@ -54,8 +55,10 @@ export default function createRTCStream( toUser, socket ) {
         var offer = await pc.createOffer();
         await pc.setLocalDescription( offer );
         
+        // await pc.setLocalDescription( await pc.createOffer() );
+        
         // Send pc.localDescription to other users.
-        emit( 'toUser', { toUser, type: 'ld', ld: pc.localDescription } );
+        emit( 'toUser', { toUser, type: 'RTC_LD', ld: pc.localDescription } );
         console.log( 333, e, offer );
         
         // Can one sending get responses from multiple users?
@@ -65,7 +68,7 @@ export default function createRTCStream( toUser, socket ) {
       
       // Step 2: Agree on a method.
       icecandidate: e => {
-        e.candidate && emit( 'toUser', { toUser, type: 'ic', 'ic': e.candidate } );
+        e.candidate && emit( 'toUser', { toUser, type: 'RTC_IC', 'ic': e.candidate } );
       },
       
       // Step 3: Yay, we got a feed!
@@ -85,5 +88,17 @@ export default function createRTCStream( toUser, socket ) {
     } ) );
   } );
   
-  return { pc, connected };
+  return {
+    pc,
+    connected,
+    addStream( stream ) {
+      stream.getTracks().forEach( track => {
+        tracks.push( track );
+        pc.addTrack( track, stream );
+      } );
+    },
+    removeStream() {
+      pc.removeTrack( tracks.shift() );
+    }
+  };
 }

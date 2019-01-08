@@ -19,7 +19,7 @@ export default ( store => {
       
       var { fromUser } = msg,
         props = getState(),
-        userStream = fromUser && props.streams.find( stream => stream.userId === fromUser );
+        userStream = fromUser && props.users.find( stream => stream.userId === fromUser );
         
       console.log( 'in', msg, type, fromUser, userStream );
       
@@ -27,13 +27,13 @@ export default ( store => {
       
         case 'startData':
           // Starting up. Step on.
-          let streams = msg.startData.users.map( user => {
+          let users = msg.startData.users.map( user => {
             return newStream( user.userId );
           } );
           console.log( 'START_DATA', msg );
           
-          dispatch( { type: 'START_DATA', userId: msg.startData.userId, streams } );
-        break;
+          dispatch( { type: 'START_DATA', userId: msg.startData.userId, users } );
+          break;
         
         case 'userConnect':
           let stream = newStream( fromUser );
@@ -44,48 +44,52 @@ export default ( store => {
           dispatch( { type: 'USER_DISCONNECT', userId: fromUser } );
           break;
         
-        case 'rec':
+        // Unused, deprecated.
+        case 'RECEIVE_REC':
           console.log( 'got rec', msg, new Blob( [ msg.rec.blob ], { type: msg.rec.type } ) );
           
-          var newSrc = URL.createObjectURL( new Blob( [ msg.rec.blob ], { type: msg.rec.type } ) );
+          // TODO: This should be a more general thing.
+          // Certain properties should have blobs replaced with urls, but not
+          // before sending.
+          // IN_SEND_REC and OUT_SEND_REC, or something.
           
-          dispatch( { type: 'RECEIVE_REC', fromUser, newSrc } )
+          var { blob, ...videoData } = msg.rec,
+            src = URL.createObjectURL( new Blob( [ blob ], { type: msg.rec.type } ) );
           
-          // userStream.vRef.current.onended = () => {
-          //   // How to access the stream itself?
-          //   userStream.vRef.current.srcObject = userStream.srcObject;
-          // };
+          dispatch( { ...videoData, type: 'RECEIVE_REC', fromUser, src } );
+          
           break;
       }
       
       if ( msg.type && msg.type.startsWith( 'IN_' ) ) {
-        dispatch( { ...msg } );
+        if ( msg.rec && msg.rec.blob ) {
+          msg.rec.src = URL.createObjectURL( new Blob( [ msg.rec.blob ], { type: msg.rec.type } ) );
+          delete msg.rec.blob;
+        }
+        dispatch( { ...msg, meta: { ...msg.meta, dir: 'in' } } );
       }
       
     } );
     
   }
   
-  function createPeerConnection( toUser ) {
-    var rtcStream = createRTCStream( toUser, socket );
-    rtcStream.connected.then( ( newSrc ) => {
-      dispatch( { type: 'RECEIVE_STREAM', fromUser: toUser, newSrc } );
-    } );
-    return rtcStream.pc;
-    
-    [ 'icecandidate', 'removestream', 'iceconnectionstatechange', 'icegatheringstatechange', 'signalingstatechange', 'negotiationneeded', 'track' ].forEach( onX => {
-      pc.addEventListener( onX, e => {
-        console.log( onX, e );
-      } );
-    } );
-    
-    return pc;
-  }
-  
   function newStream( from ) {
+    var rtcStream = createRTCStream( from, socket ),
+      pc = rtcStream.pc;
+    
+    rtcStream.connected.then( ( newSrc ) => {
+      dispatch( { type: 'RECEIVE_STREAM', fromUser: from, newSrc } );
+    } );
+    
+    // [ 'icecandidate', 'removestream', 'iceconnectionstatechange', 'icegatheringstatechange', 'signalingstatechange', 'negotiationneeded', 'track' ].forEach( onX => {
+    //   pc.addEventListener( onX, e => {
+    //     console.log( onX, e );
+    //   } );
+    // } );
+    
     return {
       userId: from,
-      pc: createPeerConnection( from )
+      pc
     };
   }
   

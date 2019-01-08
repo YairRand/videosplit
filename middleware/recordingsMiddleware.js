@@ -21,6 +21,15 @@ var recordings = {
 // Any dispatches requiring an unavailable video would delay the dispatch until
 // the server gets back.
 
+
+// For the video time problem: How about 'SET_VIDEO', which would store a ref to
+// the video element ( { getCurrentTime: () => ref.current.currentTime } ) in
+// middleware, and having a { getVideoTime: key } prop would fill in the time?
+// ^ Implemented as 'REGISTER_VIDEO_PLAYER'. TODO: Maybe move here.
+
+// ALso DOCUMENT at the top of each file and in main.js.
+
+
 // (This would mean merging this mw with the socket mw.
 
 
@@ -31,5 +40,5 @@ export default function ( store ) {
     // }
     
     return next( action );
-  }
+  };
 }
