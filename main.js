@@ -8,10 +8,6 @@ import recordingsMiddleware from './middleware/recordingsMiddleware';
 import socketMiddleware from './middleware/socketMiddleware';
 import videoPlayerMiddleware from './middleware/videoPlayerMiddleware';
 
-console.log(<div />);
-
-
-
 var middleware = applyMiddleware(
     recordingsMiddleware,
     // Should RTC connections be stored in middleware?

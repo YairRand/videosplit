@@ -1,15 +1,14 @@
 import React, { Component, useState, useRef, useEffect, useReducer } from 'react';
 import './Home.css';
 import { connect } from 'react-redux';
-import transcription from '../transcription';
+import recorder from '../recorder';
 
 // TODO:
-// * Start subtitles.
-// * Self-view.
-// * Show timer or live icon or what.
+// * Show timer (done) or live icon or what.
 // * Other interrupt ways. (dedicated button, chat)
 // * Stop feed button.
 // * Module-ize some stuff.
+// * When sending feed, connect to new users who show up after pressing button.
 // * HMR.
 
 console.log( 'START' );
@@ -54,6 +53,9 @@ const VideoGroup = ( () => {
     // There is actually an explicit warning in the docs not to use connect like this
     // on the outer component... TODO: Fix.
     state => state
+    // Before changing this, need to:
+    // * Rework where feeds are stored, fix sendFeed.
+    // * Connect ExtVideoBlock.
     // state => ( { streamIds: state.users.map( stream => stream.userId ) } )
   )( function VideoGroup( props ) {
     var [ state, localDispatch ] = useReducer( reducer, {
@@ -76,7 +78,6 @@ const VideoGroup = ( () => {
     }
     
     function stopWebcam() {
-      console.log( 3333 );
       state.stream && state.stream.getTracks().forEach( track => track.stop() );
       localDispatch( { type: 'DISABLE_WEBCAM' } );
     }
@@ -107,7 +108,13 @@ const VideoGroup = ( () => {
       <Buttons />
       {
         props.users.map( user => {
-          return <ExtVideoBlock { ...user } selfId={ props.userId } selfStream={ state.stream } dispatch={ props.dispatch } key={ 100 + user.userId } />;
+          return <ExtVideoBlock
+            { ...user }
+            selfId={ props.userId }
+            selfStream={ state.stream /* Unused? */ }
+            dispatch={ props.dispatch }
+            key={ 100 + user.userId }
+          />;
         } )
       }
     </div>;
@@ -127,7 +134,7 @@ function Buttons( props ) {
 // TODO: Figure out transitions from recording to live.
 // (Does this actually need to be a full component?)
 // TODO: Move a lot of this to UserVideoBlock.
-const UserVideoBlock = connect( state => state )( class extends Component {
+const UserVideoBlock = connect( state => state )( class UserVideoBlock extends Component {
   
   state = {
     recording: false,
@@ -137,9 +144,7 @@ const UserVideoBlock = connect( state => state )( class extends Component {
   
   constructor( props ) {
     super();
-    this.ref = React.createRef();
-    this.ref2 = React.createRef();
-    this.chunks = [];
+    this.showRecRef = React.createRef();
   }
   
   componentWillUnmount() {
@@ -147,64 +152,32 @@ const UserVideoBlock = connect( state => state )( class extends Component {
   }
   
   recordStream() {
-    this.chunks = [];
-    this.recorder = new MediaRecorder( this.props.stream, { video: true, audio: true } );
-    this.recorder.ondataavailable = ( e ) => {
-      // NOTE: Only the first chunk, or the collection of all chunks until .stop() will work.
-      // Eventually, push these to the server immediately, and out from there.
-      this.chunks.push( e.data );
-    };
+    this.recorder = recorder( this.props.stream );
     
-    transcription.start();
-    
-    // Send out chunks every X amount of time so that there's less loading time
-    // when we need to switch to a just-finished recording.
-    this.recorder.start( 500 );
-    
-    this.setState( { recording: true, recordingStart: Date.now() } );
+    this.setState( { recording: true } );
   }
   
-  stopRecording() {
-    
-    var type = this.chunks[ 0 ].type,
-      newBlob = new Blob( this.chunks, { type } ),
-      videoData = {
-        type,
-        ts: Date.now().toString(),
-        src: URL.createObjectURL( newBlob ),
-        // Hope this is accurate...
-        // If not, maybe set a video to the url and read .duration.
-        length: Date.now() - this.state.recordingStart,
-        transcript: transcription.getWords(),
-        id: Math.random()
-      },
-      recordedVideo = {
-        blob: newBlob,
-        ...videoData
-      };
+  async stopRecording() {
     
     this.setState( {
-      recordedVideos: this.state.recordedVideos.concat( recordedVideo ),
-      recording: false,
-      recordingStart: null
+      recording: false // TODO: Set to 'WAIT'
     } );
-  
-    // this.sendRecording( recordedVideo );
+    
+    var recordedVideo = await this.recorder(),
+      { blob: newBlob, ...videoData } = recordedVideo;
+    
+    this.setState( {
+      recordedVideos: [ ...this.state.recordedVideos, recordedVideo ]
+    } );
     
     // Currently unused. TODO.
     this.props.dispatch( { type: 'NEW_RECORDING', video: videoData } );
     
-    this.showRecording( recordedVideo );
-    
-    this.recorder.stop();
-    
     return recordedVideo;
   }
   
-  showRecording( { url } ) {
-    console.log( 'q', this.chunks.length, url, this.chunks );
-    
-    this.setState( { recorded: url } );
+  showRecording( { src } ) {
+    this.setState( { showRecording: src } );
   }
   
   sendRecording( recordedVideo ) {
@@ -249,8 +222,8 @@ const UserVideoBlock = connect( state => state )( class extends Component {
           </button>
           {
             this.state.recording && <button
-              onClick={ () => {
-                this.sendRecording( this.stopRecording() );
+              onClick={ async () => {
+                this.sendRecording( await this.stopRecording() );
               } }
             >Stop and send</button>
           }
@@ -261,18 +234,46 @@ const UserVideoBlock = connect( state => state )( class extends Component {
           !!this.state.recordedVideos.length && (
             <Box>{
               this.state.recordedVideos.map( recordedVideo => {
-                return <div onClick={ () => this.sendRecording( recordedVideo ) } key={ recordedVideo.ts }>Send recording</div>;
+                // return <div onClick={ () => this.sendRecording( recordedVideo ) } key={ recordedVideo.ts }>Send recording</div>;
+                return <RecordingOptionsBox
+                  key={ recordedVideo.id }
+                  recordedVideo={ recordedVideo }
+                  play={ () => this.showRecording( recordedVideo ) }
+                  send={ () => this.sendRecording( recordedVideo ) }
+                  delete={ () => this.setState( { recordedVideos: this.state.recordedVideos.filter( vid => vid !== recordedVideo ) } ) }
+                />;
               } )
             }</Box>
           )
         }
-        <video height={100} width={100} src={ this.state.recorded } key={1} autoPlay loop ref={ this.ref2 } onClick={ () => { this.setState( { recorded: this.firstUrl } ); } } />
+        {
+          this.state.showRecording && <>
+            <video height={100} width={100} src={ this.state.showRecording } key={1} autoPlay ref={ this.showRecRef } onClick={ () => {
+              // Pause maybe?
+            } } onEnded={ () => { this.setState( { showRecording: false } ); } } />
+            <br />
+          </>
+        }
         <SendBox />
       </div>
     );
   }
 } );
 
+const RecordingOptionsBox = function RecordingOptionsBox( props ) {
+  var { recordedVideo } = props,
+    lengthInSeconds = recordedVideo.length / 1000,
+    timeDisplay = lengthInSeconds < 60 ?
+      lengthInSeconds.toFixed( 2 ) :
+      Math.floor( lengthInSeconds / 60 ) + ':' + Math.floor( lengthInSeconds % 60 ).toString().padStart( 2, 0 );
+  return <div className="RecordingOptionsBox">
+    <span className="ROB-titleBox">Video</span>
+    <span className="ROB-time">{ timeDisplay }</span>
+    <span className="ROB-button" onClick={ props.play }>Play</span>
+    <span className="ROB-button" onClick={ props.send }>Send</span>
+    <span className="ROB-button" onClick={ props.delete }>X</span>
+  </div>;
+};
 
 // (Not sure how rewinding and such would work here...)
 const VideoBlock = function VideoBlock( props ) {
@@ -282,11 +283,15 @@ const VideoBlock = function VideoBlock( props ) {
     baseWidth = 200;
   
   // Note: Self-views don't need the canvas, I think? Also student views.
+  // Don't spread props so much.
   
   return <div className='VideoBlock'>
     <BasicVideoBlock { ...props } videoId={ props.userId } size={ 1 } />
     <div className='VideoBlock-cornerBox'>
-      { props.cornerBox && <BasicVideoBlock size={ 0.5 } { ...props.cornerBox } /> }
+      { props.cornerBox && <>
+        <BasicVideoBlock size={ 0.5 } time={ props.cornerBox.last_rec_time } { ...props.cornerBox } />
+        <TimeTicker startTime={ props.cornerBox.last_rec_time } />
+      </> }
     </div>
     <span>
       { userId !== null ? 'Person' + userId : 'Loading...' }
@@ -308,7 +313,7 @@ function BasicVideoBlock( { src, time, onEnded, videoId, size = 1, dispatch, tra
     canvasRef = useRef(),
     baseHeight = 200 * size,
     baseWidth = 200 * size;
-  size === 0.5 && console.log( 442221, arguments );
+  
   // Should this use useLayoutEffect instead to avoid waiting?
   useEffect( () => {
     let elem = ref.current,
@@ -396,101 +401,59 @@ function BasicVideoBlock( { src, time, onEnded, videoId, size = 1, dispatch, tra
   </>;
 }
 
-class ExtVideoBlock extends Component {
-// const ExtVideoBlock = connect( ( state, ownProps ) => state.users[ ownProps.userId ] )( class extends Component {
-  render() {
-    console.log( 442, this.props );
-    return <>
-      <VideoBlock
-        userId={ this.props.userId }
-        src={ this.props.src }
-        time={ this.props.time }
-        dispatch={ this.props.dispatch }
-        onEnded={ e=>{
-          console.log( 4422, e, this.props );
-          // Issue: onEnded might be called when video is cut off due to disconnect.
-          // TODO: This should emit, I think.
-          this.props.dispatch( { type: 'X_VIDEO_END', toUser: this.props.userId } );
-        } }
-        cornerBox={ this.props.out.useLive === false && { ...this.props.out.recordingsQueue[ 0 ], time: this.props.out.recordingsQueue[ 0 ].last_rec_time || 0 } }
-        leftIcon={ this.props.hand && <div style={{ position: 'absolute', boxShadow: this.props.interrupting ? '0 0 2px inset #000000' : '' }} onClick={ e => {
-          // React to hand. Probably interrupt any recorded with live.
-          // Same thing for reacting to chat.
-          
-          // TODO: Only interrupt when st is viewing rec.
-          // this.props.dispatch( { type: !this.props.interrupting ? 'X_INTERRUPT_WITH_LIVE' : 'X_RESUME_REC', toUser: this.props.userId } );
-          
-          this.props.dispatch( this.props.interrupting ?
-            { type: 'X_RESUME_REC', toUser: this.props.userId } :
-            // TODO: Eventually, get the time from the receiving client, don't guess here with .time.
-            { type: 'X_INTERRUPT_WITH_LIVE', time: Date.now(), toUser: this.props.userId, getVideoCurrentTime: this.props.selfId }
-          );
-        } }>(HAND)</div> }
-        subBox={ 
-          ( this.props.hand || this.props.chats.length > 0 ) && <div style={{ borderTop: '1px dashed #AAAAAA' }}>
-            
-            { this.props.chats.map( ( chat, i ) => {
-              // TODO: Fade out after some time, allow scrolling back into view somehow,
-              // clicking should perform interrupt, have semi-transparent background,
-              // place over video at the bottom? Show greyed timestamp?
-              return <div key={ i }>{ chat.text }</div>;
-            } ) }
-          </div>
-        }
-      />
-    </>;
+function ExtVideoBlock( props ) {
+// const ExtVideoBlock = connect( ( state, ownProps ) => {
+//   // Or maybe be more specific about which properties?
+//   state.users[ ownProps.userId ]
+// )( class extends Component {
+  console.log( 442, props );
+  
+  var src = props.in.useLive === false ? props.in.recordingsQueue[ 0 ].src : props.streamSrc,
+    cornerBox;
+  
+  if ( props.out.useLive ) {
+    // No box for live stream out.
+  } else {
+    let currentRecording = props.out.recordingsQueue[ 0 ];
+    cornerBox = { ...currentRecording, time: currentRecording.last_rec_time };
   }
+  
+  return <VideoBlock
+    userId={ props.userId }
+    src={ src }
+    time={ props.time }
+    dispatch={ props.dispatch }
+    onEnded={ e => {
+      console.log( 4422, e, props );
+      // Issue: onEnded might be called when video is cut off due to disconnect.
+      props.dispatch( { type: 'X_VIDEO_END', toUser: props.userId } );
+    } }
+    cornerBox={ cornerBox }
+    leftIcon={ props.hand && <div className='leftIcon' style={{ position: 'absolute', boxShadow: props.interrupting ? '0 0 2px inset #000000' : '' }} onClick={ e => {
+      // React to hand. Interrupt any recorded with live.
+      // Same thing for reacting to chat.
+      
+      // TODO: Only interrupt when st is viewing rec.
+      
+      props.dispatch( props.interrupting ?
+        { type: 'X_RESUME_REC', toUser: props.userId } :
+        // TODO: Eventually, get the time from the receiving client, don't guess here with .time.
+        { type: 'X_INTERRUPT_WITH_LIVE', time: Date.now(), toUser: props.userId, getVideoCurrentTime: props.selfId }
+      );
+    } }>(HAND)</div> }
+    subBox={ 
+      ( props.hand || props.chats.length > 0 ) && <div style={{ borderTop: '1px dashed #AAAAAA' }}>
+        
+        { props.chats.map( ( chat, i ) => {
+          // TODO: Fade out after some time, allow scrolling back into view somehow,
+          // clicking should perform interrupt, have semi-transparent background,
+          // place over video at the bottom? Show greyed timestamp?
+          return <div key={ i }>{ chat.text }</div>;
+        } ) }
+      </div>
+    }
+  />;
 }
-
-const _ExtVideoBlock = connect( ( state, ownProps ) => {
-  // TODO: Maybe be more specific about which properties?
-  return state.users[ ownProps.userId ];
-} )( function ExtVideoBlock( props ) {
-  const [ stream, setStream ] = useState();
-  
-  useEffect( () => {
-    // TODO.
-    // props.dispatch( { type: 'GET_STREAM', id: props.userId } ).then( stream => {
-    //   setStream( stream );
-    // } );
-  }, [
-    // props.connected?
-  ] );
-  
-  return <>
-    <VideoBlock
-      userId={ props.userId }
-      src={ props.showLive ? stream : props.recordingsQueue[ 0 ].src }
-      time={ props.time }
-      onEnded={ e => {
-        console.log( 4422, e, this.props );
-        // Issue: onEnded might be called when video is cut off due to disconnect.
-        // TODO: This should emit, I think.
-        this.props.dispatch( { type: 'X_VIDEO_END', fromUser: props.userId } );
-      } }
-    />
-    <div>
-      { props.hand && <div style={{ boxShadow: props.interrupting ? '0 0 2px inset #000000' : '' }} onClick={ e => {
-        // React to hand. Probably interrupt any recorded with live.
-        // Same thing for reacting to chat.
-        
-        // TODO: Only interrupt when st is viewing rec.
-        // this.props.dispatch( { type: !this.props.interrupting ? 'X_INTERRUPT_WITH_LIVE' : 'X_RESUME_REC', toUser: this.props.userId } );
-        
-        props.dispatch( props.interrupting ?
-          { type: 'X_RESUME_REC', toUser: this.props.userId } :
-          { type: 'X_INTERRUPT_WITH_LIVE', toUser: this.props.userId, getVideoCurrentTime: props.selfId }
-        );
-      } }>(HAND)</div> }
-      { props.chats.map( ( chat, i ) => {
-        // TODO: Fade out after some time, allow scrolling back into view somehow,
-        // clicking should perform interrupt, have semi-transparent background,
-        // place over video at the bottom? Show greyed timestamp?
-        return <div key={ i }>{ chat.text }</div>;
-      } ) }
-    </div>
-  </>;
-} );
 
 const SendBox = connect(
   null,
@@ -592,6 +555,22 @@ function SubtitlesBox( { transcript, startTime } ) {
   
 }
 
+function TimeTicker( { startTime } ) {
+  var [ time, setTime ] = useState( startTime ),
+    // TODO: Remove duplication with ROB.
+    lengthInSeconds = time / 1000;
+  
+  useEffect( () => {
+    var start = Date.now(),
+      timer = setInterval( () => setTime( Date.now() - start ), 1000 );
+    return () => clearInterval( timer );
+  }, [ startTime ] );
+  
+  return <span className='TimeTicker'>
+    { Math.floor( lengthInSeconds / 60 ) + ':' + Math.floor( lengthInSeconds % 60 ).toString().padStart( 2, 0 ) }
+  </span>;
+}
+
 // Not sure canvas will ever be needed here. Recorded and live videos both work in video tags.
 class CanvasBlock extends Component {
   componentDidMount() {
@@ -610,7 +589,7 @@ class CanvasBlock extends Component {
 }
 
 function Box( props ) {
-  return <div style={{display:'inline-block'}}>{ props.children }</div>;
+  return <div style={{ display: 'inline-block', textAlign: 'left', verticalAlign: 'top' }}>{ props.children }</div>;
 }
 
 class ChatBox extends Component {

@@ -16,9 +16,9 @@ export default function createRTCStream( toUser, socket ) {
     // We're interested in ld, reLd, and ic, but only when relevant to toUser.
     if ( msg.fromUser === toUser ) {
       switch( msg.type ) {
-        case 'RTC_LD':
+        case 'RTC_LD': {
           // INCOMING FEEEEED
-          var rsd = new RTCSessionDescription( msg.ld );
+          let rsd = new RTCSessionDescription( msg.ld );
           
           await pc.setRemoteDescription( rsd );
           // Theoretically, there should be an answer sent here, with outgoing video feed.
@@ -29,15 +29,15 @@ export default function createRTCStream( toUser, socket ) {
           emit( 'toUser', { toUser, type: 'RTC_RELD', reLd: pc.localDescription } );
           console.log( 'handled incoming feed. sending reLd back.' );
           break;
-        
-        case 'RTC_RELD':
+        }
+        case 'RTC_RELD': {
           // Received response. Now what?
-          var rsd = new RTCSessionDescription( msg.reLd );
+          let rsd = new RTCSessionDescription( msg.reLd );
           pc.setRemoteDescription( rsd );
           console.log( 'reLd complete' );
           
           break;
-        
+        }
         case 'RTC_IC':
           pc.addIceCandidate( new RTCIceCandidate( msg.ic ) );
           break;

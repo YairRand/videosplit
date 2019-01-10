@@ -1,6 +1,6 @@
-const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition;
-
-export default ( function init() {
+const transcription = ( function init() {
+  const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition;
+  
   if ( SpeechRecognition ) {
     const SR = new SpeechRecognition(),
       words = [],
@@ -44,6 +44,7 @@ export default ( function init() {
     } );
     SR.onstart = e => {
       console.log( 'begin speech recognition' );
+      // Currently unused?
       wordsStartTime = Date.now();
     };
     SR.onspeechend = e => {
@@ -72,8 +73,51 @@ export default ( function init() {
     
     return {
       start(){},
-      reset(){},
-      stop(){}
+      getWords() {
+        return [];
+      }
     };
   }
 } )();
+
+export default function record( stream ) {
+  var chunks = [],
+    recorder = new MediaRecorder( stream, { video: true, audio: true } ),
+    recordingStart = Date.now();
+  
+  recorder.ondataavailable = ( e ) => {
+    // NOTE: Only the first chunk, or the collection of all chunks until .stop() will work.
+    // Eventually, push these to the server immediately, and out from there.
+    chunks.push( e.data );
+  };
+  
+  transcription.start();
+  
+  // Send out chunks every X amount of time so that there's less loading time
+  // when we need to switch to a just-finished recording.
+  recorder.start( 3000 );
+  
+  return function stopRecording() {
+    return new Promise( resolve => {
+      recorder.addEventListener( 'stop', () => {
+        var type = chunks[ 0 ].type,
+          newBlob = new Blob( chunks, { type } ),
+          recordedVideo = {
+            type,
+            ts: Date.now().toString(),
+            src: URL.createObjectURL( newBlob ),
+            // Hope this is accurate...
+            // If not, maybe set a video to the url and read .duration.
+            length: Date.now() - recordingStart,
+            transcript: transcription.getWords(),
+            id: Math.random(),
+            blob: newBlob
+          };
+        
+        resolve( recordedVideo );
+      }, { once: true } );
+      
+      recorder.stop();
+    } );
+  };
+}

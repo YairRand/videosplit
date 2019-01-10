@@ -20,6 +20,7 @@ export default store => {
       // baseType should be in meta, theoretically.
       return next( { ...action, type: 'OUT_' + type, baseType: type, meta: { ...action.meta, dir: 'out' } } );
     } else if ( action.type === 'EMIT' ) {
+      // Currently unused.
       return socket.emit( 'out', action.payload );
     } else {
       return next( action ); 

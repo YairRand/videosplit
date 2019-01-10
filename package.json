@@ -4,7 +4,7 @@
   "scripts": {
     "webpack": "webpack",
     "start": "node server.js",
-    "lint": "eslint reducers.js server.js transcription.js middleware/** components/**js"
+    "lint": "eslint reducers.js server.js recorder.js middleware/** components/**js"
   },
   "dependencies": {
     "@babel/core": "^7.2.2",

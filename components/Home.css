@@ -1,5 +1,6 @@
 body {
   font-family: arial;
+  font-size: 14px;
 }
 
 .Home {
@@ -7,7 +8,7 @@ body {
 }
 
 .Home-intro {
-  font-size: large;
+  text-align: left;
 }
 
 .VideoBlock {
@@ -29,6 +30,8 @@ body {
   width: 50%;
 }
 
+
+
 .SubtitlesBox {
   background: rgba( 0, 0, 0, 0.5 );
   color: white;
@@ -41,6 +44,34 @@ body {
 .SubtitlesBox-inner {
   margin-left: 0px;
   transition: margin-left 0.5s;
+}
+
+.TimeTicker {
+  position: absolute;
+  top: 0;
+  right: 0;
+  color: white;
+  background: rgba( 0, 0, 0, 0.5 );
+  font-family: monospace;
+}
+
+/* TODO: Split */
+.RecordingOptionsBox {
+  padding: 1px 3px;
+  font-size: 12px;
+}
+
+.RecordingOptionsBox .ROB-time {
+  display: inline-block;
+  width: 3em;
+  font-size: 11px;
+  padding: 0 3px;
+  font-family: monospace;
+  text-align: right;
+}
+
+.RecordingOptionsBox .ROB-button {
+  padding: 0px 3px;
 }
 
 button {

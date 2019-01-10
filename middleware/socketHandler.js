@@ -25,21 +25,21 @@ export default ( store => {
       
       switch ( msg.type ) {
       
-        case 'startData':
+        case 'startData': {
           // Starting up. Step on.
           let users = msg.startData.users.map( user => {
-            return newStream( user.userId );
+            return newUser( user.userId );
           } );
           console.log( 'START_DATA', msg );
           
           dispatch( { type: 'START_DATA', userId: msg.startData.userId, users } );
           break;
-        
-        case 'userConnect':
-          let stream = newStream( fromUser );
-          dispatch( { type: 'USER_CONNECT', stream } );
+        }
+        case 'userConnect': {
+          let user = newUser( fromUser );
+          dispatch( { type: 'USER_CONNECT', user } );
           break;
-        
+        }
         case 'userDisconnect':
           dispatch( { type: 'USER_DISCONNECT', userId: fromUser } );
           break;
@@ -73,7 +73,7 @@ export default ( store => {
     
   }
   
-  function newStream( from ) {
+  function newUser( from ) {
     var rtcStream = createRTCStream( from, socket ),
       pc = rtcStream.pc;
     

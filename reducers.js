@@ -11,62 +11,92 @@ function userId( state = null, action ) {
 // Dispatching 'X_EVT' will emit 'IN_EVT' and dispatch 'OUT_EVT'. Receiving 'IN_EVT' dispatches same.
 
 function users( state = [], action ) {
+  
+  // switch( action.baseType ) {
+  //   case 'VIDEO_END': {
+  //     var { dir } = action,
+  //       otherDir = dir === 'out' ? 'in' : 'out';
+  // 
+  //     return modItem( state, dir === 'out' ? action.toUser : action.fromUser, state => {
+  //       var [ , ...recordingsQueue ] = state[ otherDir ].recordingsQueue;
+  //       return { [ otherDir ]: { ...state[ otherDir ], useLive: recordingsQueue.length === 0, recordingsQueue } };
+  //     } );
+  //   }
+  // }
+  
   switch( action.type ) {
     case 'START_DATA':
-      return action.users.map( stream => ( { ...newUser(), ...stream } ) );
+      return action.users.map( user => ( { ...newUser(), ...user } ) );
     case 'USER_CONNECT':
-      return [ ...state, { ...newUser(), ...action.stream } ];
+      return [ ...state, { ...newUser(), ...action.user } ];
     case 'USER_DISCONNECT':
-      return state.filter( stream => stream.userId !== action.userId );
+      return state.filter( user => user.userId !== action.userId );
     case 'RECEIVE_STREAM':
       return modItem( state, action.fromUser, state => ( { src: action.newSrc, streamSrc: action.newSrc } ) );
     case 'IN_SEND_REC': {
       let { src, length, transcript } = action.rec;
       
-      return modItem( state, action.fromUser, state => ( { in: { ...state.in, useLive: false, recordingsQueue: [ ...state.in.recordingsQueue, {
-        src, length, transcript, last_rec_time: 0
-      } ] }, src, time: 0 } ) );
+      return modItem( state, action.fromUser, state => ( {
+        in: {
+          ...state.in,
+          useLive: false,
+          recordingsQueue: [ ...state.in.recordingsQueue, {
+            src, length, transcript,
+            // Time to start playing from. (Used in case video is paused and later started again from point left off.)
+            // Should this be renamed "time"?
+            last_rec_time: 0
+          } ]
+        },
+        src,
+        // ??
+        // This appears to be used somewhere.
+        time: 0
+      } ) );
     }
     case 'OUT_SEND_REC': {
       // Assume sending to all participants.
       // Eventually, allow for sending to only particular participants.
-      // toUsers: [], perhaps.
+      // toUsers: [], perhaps. (Actually, that could be confused with for none?)
       let { src, length, transcript } = action.rec;
       return state.map( state => ( { ...state, out: { ...state.out, useLive: false, recordingsQueue: [ ...state.out.recordingsQueue, {
-        src, length, transcript, startTime: action.time, time: 0
+        src, length, transcript, last_rec_time: 0,
+        // TODO: Get rid of the 'startTime' stuff.
+        startTime: action.time, time: 0
       } ] } } ) );
     }
+    // TODO: Remove duplication.
     case 'OUT_VIDEO_END':
-      // TODO: When there are other recs waiting, switch to those instead.
-      // pseudo-shift the list into src.
       return modItem( state, action.toUser, state => {
-        var [ endedVideo, ...recordingsQueue ] = state.in.recordingsQueue;
-        return { src: state.streamSrc, in: { ...state.in, useLive: recordingsQueue.length > 0, recordingsQueue } };
+        var [ , ...recordingsQueue ] = state.in.recordingsQueue;
+        return { in: { ...state.in, useLive: recordingsQueue.length === 0, recordingsQueue } };
       } );
     case 'IN_VIDEO_END':
       return modItem( state, action.fromUser, state => {
-        var [ endedVideo, ...recordingsQueue ] = state.out.recordingsQueue;
+        var [ , ...recordingsQueue ] = state.out.recordingsQueue;
         return { out: { ...state.out, useLive: recordingsQueue.length === 0, recordingsQueue } };
       } );
     case 'IN_INTERRUPT_WITH_LIVE':
       // getVideoCurrentTime is filled in by videoPlayerMiddleware.
       
       return modItem( state, action.fromUser, state => {
-        var oldQueue = state.in.recordingsQueue,
-          recordingsQueue = oldQueue.length ? [ { ...oldQueue[ 0 ], last_rec_time: action.getVideoCurrentTime }, ...oldQueue.slice( 1 ) ] : [];
+        var last_rec_time = action.getVideoCurrentTime,
+          oldQueue = state.in.recordingsQueue,
+          recordingsQueue = oldQueue.length ? [ { ...oldQueue[ 0 ], last_rec_time }, ...oldQueue.slice( 1 ) ] : [];
         
-        return { in: { ...state.in, useLive: true, recordingsQueue }, last_rec: state.src, src: state.streamSrc };
+        return { in: { ...state.in, useLive: true, recordingsQueue } };
+      } );
+    case 'OUT_INTERRUPT_WITH_LIVE':
+      return modItem( state, action.toUser, state => {
+        // console.log( 5550, recording, state.out.recordingsQueue );
+        // This breaks if recordingsQueue is empty. TODO.
+        var last_rec_time = ( action.time - state.out.recordingsQueue[ 0 ].startTime ) / 1000,
+          oldQueue = state.out.recordingsQueue,
+          recordingsQueue = oldQueue.length ? [ { ...oldQueue[ 0 ], last_rec_time }, ...oldQueue.slice( 1 ) ] : [];
+        // / 1000 because video players use seconds instead of milliseconds.
+        return { out: { ...state.out, useLive: true, recordingsQueue }, interrupting: true };
       } );
     case 'IN_RESUME_REC':
-      return modItem( state, action.fromUser, state => ( { in: { ...state.in, useLive: false }, src: state.last_rec, time: state.in.recordingsQueue[ 0 ].last_rec_time } ) );
-    case 'OUT_INTERRUPT_WITH_LIVE':
-      // TODO: Rewrite the mess with last_rec_time and out_last_rec_time.
-      return modItem( state, action.toUser, state => {
-        // console.log( 5550, action.time - state.outRecordingsQueue[ 0 ].startTime, action.time, state.outRecordingsQueue[ 0 ].startTime ),
-        var recording = { ...state.out.recordingsQueue[ 0 ], last_rec_time: ( action.time - state.out.recordingsQueue[ 0 ].startTime ) / 1000 };
-        // / 1000 because video players use seconds instead of milliseconds.
-        return { out: { ...state.out, useLive: true, recordingsQueue: [ recording, ...state.out.recordingsQueue.slice( 1 ) ] }, interrupting: true };
-      } );
+      return modItem( state, action.fromUser, state => ( { in: { ...state.in, useLive: false }, time: state.in.recordingsQueue[ 0 ].last_rec_time } ) );
     case 'OUT_RESUME_REC':
       return modItem( state, action.toUser, state => ( { out: { ...state.out, useLive: false }, interrupting: false, hand: false } ) );
     case 'IN_CHAT':
@@ -86,8 +116,13 @@ function newUser() {
     hand: false,
     in: { useLive: true, recordingsQueue: [] },
     out: { useLive: true, recordingsQueue: [] }
-    // recordingsQueue: [ { last_rec_time } ]
+    // recordingsQueue: [ { last_rec_time, length, src, transcript, time?: 0 } ]
     // Need to store time in each video, as we can splice in videos before others, eg to answer a question.
+    
+    // userId
+    // src, // Deprecating
+    // last_rec // Deprecating
+    // streamSrc,
   };
 }
 
