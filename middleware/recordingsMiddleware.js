@@ -1,13 +1,26 @@
-var recordings = {
-  // Each recording should have:
-  // * An ID (Math.random() I think)
-  // * The Video blob, if recorded locally.
-  // * A URL.
-  // * Length
-  // * Subtitles, and timestamps.
-  // * Type?
-  // * ...?
-};
+// To avoid sending or recieving the same video twice, cache previously recieved
+// videos (in recordingsIn) and keep a list of videos previously sent (recordingsOut).
+// The server will fill in the blanks when necessary on the sending end, and
+// the recordingsIn object will fill in from the cache on this end.
+
+// var recordings = {
+// };
+
+var recordingsOut = {
+    // [ id ]: true
+  },
+  recordingsIn = {
+    // [ id ]: {
+      // Each recording should have:
+      // * An ID (Math.random() I think)
+      // * The Video blob, if recorded locally.
+      // * A URL.
+      // * Length
+      // * Subtitles, and timestamps.
+      // * Type?
+      // * ...?
+    // }
+  };
 
 // Currently blobs are stored as local state of UserVideoBlock.
 // That might actually be workable, if the store only holds everything but the blob?
@@ -32,12 +45,46 @@ var recordings = {
 
 // (This would mean merging this mw with the socket mw.
 
+// Idea: Make this a prop. If we've already sent the video, don't pass it to the server.
+// If we recieve a video with a familiar blob in the set property, add the video from cache.
+
 
 export default function ( store ) {
   return next => action => {
-    // if ( action.type === 'STORE_RECORDING' ) {
-    //   // ??
-    // }
+    
+    // This needs to run before socket to modify before it gets there, which it does.
+    
+    if ( action.videoData ) {
+      
+      let videoData = action.videoData,
+        { id } = videoData,
+        dir = action.meta && action.meta.dir;
+      
+      if ( dir === 'in' ) {
+        if ( recordingsIn[ id ] ) {
+          // We've already been sent this video. Use the cached version.
+          videoData = recordingsIn[ id ];
+        } else {
+          if ( videoData.blob ) {
+            // Turn the blob into a url, and cache for future uses.
+            videoData.src = URL.createObjectURL( new Blob( [ videoData.blob ], { type: videoData.type } ) );
+            ( { blob: {}, ...videoData } = videoData );
+            recordingsIn[ id ] = videoData;
+          }
+        }
+      } else {
+        // Sending out a video.
+        if ( recordingsOut[ id ] ) {
+          // The server already has the data available. Don't re-send.
+          ( { blob: {}, ...videoData } = videoData );
+        } else {
+          // Record that this video has been sent.
+          recordingsOut[ id ] = true;
+        }
+      }
+      
+      action = { ...action, videoData };
+    }
     
     return next( action );
   };

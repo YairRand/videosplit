@@ -4,11 +4,12 @@ body {
 }
 
 .Home {
-  text-align: center;
+  text-align: left;
+  padding: 1em 2em;
 }
 
 .Home-intro {
-  text-align: left;
+  float: right;
 }
 
 .VideoBlock {
@@ -30,9 +31,13 @@ body {
   width: 50%;
 }
 
-
+.VideoBlock-username {
+  display: block;
+  text-align: center;
+}
 
 .SubtitlesBox {
+  /* TODO: Consider using a gradiented background, transparent top to translucent darkgrey bottom. */
   background: rgba( 0, 0, 0, 0.5 );
   color: white;
   font-size: 13px;
@@ -76,4 +81,5 @@ body {
 
 button {
   width: 100%;
+  display: block;
 }

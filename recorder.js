@@ -1,3 +1,5 @@
+// TODO: Figure out how to divide recordings at the ends of words where possible.
+
 const transcription = ( function init() {
   const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition;
   

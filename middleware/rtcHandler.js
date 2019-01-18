@@ -1,4 +1,4 @@
-export default function createRTCStream( toUser, socket ) {
+export default function createRTCConnection( toUser, socket ) {
   
   // This is going to be a self-contained thing, return a promise with a stream.
   
@@ -46,7 +46,7 @@ export default function createRTCStream( toUser, socket ) {
   } );
   
   var connected = new Promise( resolve => {
-    console.log( 'createRTCStream' );
+    console.log( 'createRTCConnection' );
     // Set handlers.
     Object.entries( {
       // Step 1: Send out offer.

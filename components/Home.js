@@ -2,13 +2,22 @@ import React, { Component, useState, useRef, useEffect, useReducer } from 'react
 import './Home.css';
 import { connect } from 'react-redux';
 import recorder from '../recorder';
+import VideoBlock from './VideoBlock';
+import IntMods from '../interaction_modules/main';
 
 // TODO:
 // * Show timer (done) or live icon or what.
 // * Other interrupt ways. (dedicated button, chat)
 // * Stop feed button.
 // * Module-ize some stuff.
-// * When sending feed, connect to new users who show up after pressing button.
+// * Allow stream to show on a delay.
+// * Fix autoplay issues.
+// * Fix bug where everything explodes on unclicking ext's hand when no recording.
+// * Look into PiP API, see if it's usable.
+// * Set up tests outline. Use jest. Have a server- and browser-in-a-box, with sockets.
+//   Dunno how to deal with hardware, or webrtc. Hold off on them for now, not important.
+// * Set up concatenating consecutive videos without losing transcripts or smoothness.
+// * Fix time indicator after interrupt.
 // * HMR.
 
 console.log( 'START' );
@@ -30,6 +39,7 @@ class Outer extends Component {
   render() {
     return (
       <div className="App">
+        <IntMods />
         <VideoGroup />
       </div>
     );
@@ -39,6 +49,7 @@ class Outer extends Component {
 const VideoGroup = ( () => {
   var reducer = ( state, action ) => {
     // Is a reducer actually necessary here?
+    // VideoGroup might get more complicated, I suppose.
     switch ( action.type ) {
       case 'GET_WEBCAM':
         return { ...state, webcam: 'WAIT' };
@@ -50,13 +61,8 @@ const VideoGroup = ( () => {
   };
   
   return connect(
-    // There is actually an explicit warning in the docs not to use connect like this
-    // on the outer component... TODO: Fix.
-    state => state
-    // Before changing this, need to:
-    // * Rework where feeds are stored, fix sendFeed.
-    // * Connect ExtVideoBlock.
-    // state => ( { streamIds: state.users.map( stream => stream.userId ) } )
+    // mapStateToProps
+    state => ( { userId: state.userId, userIds: state.users.map( user => user.userId ) } )
   )( function VideoGroup( props ) {
     var [ state, localDispatch ] = useReducer( reducer, {
       webcam: 'OFF', // [ 'OFF', 'WAIT', 'ON' ]
@@ -66,6 +72,10 @@ const VideoGroup = ( () => {
     function getWebcam() {
       localDispatch( { type: 'GET_WEBCAM' } );
       navigator.mediaDevices.getUserMedia( {
+        // video: { aspectRatio: 4 / 3 },
+        // video: { aspectRatio: 3 / 2 },
+        // Mine is 4/3, other common ones include 3/2.
+        // Not all browsers support setting aspectRatio.
         video: true,
         audio: true
       } ).then( stream => {
@@ -83,14 +93,7 @@ const VideoGroup = ( () => {
     }
     
     function sendFeed() {
-      props.users.forEach( user => {
-        var pc = user.pc,
-          { stream } = state;
-        
-        stream.getTracks().forEach( track => pc.addTrack( track, stream ) );
-        
-        console.log( 'sendFeed', pc, stream );
-      } );
+      props.dispatch( { type: 'SEND_STREAM', stream: state.stream } );
     }
     
     // Should the user block always be at the top? For explicit student views, maybe not...
@@ -107,13 +110,12 @@ const VideoGroup = ( () => {
       />
       <Buttons />
       {
-        props.users.map( user => {
+        props.userIds.map( extUserId => {
           return <ExtVideoBlock
-            { ...user }
+            userId={ extUserId }
             selfId={ props.userId }
-            selfStream={ state.stream /* Unused? */ }
-            dispatch={ props.dispatch }
-            key={ 100 + user.userId }
+            selfStream={ state.stream /* Unused? Might be used in the future. */ }
+            key={ 100 + extUserId }
           />;
         } )
       }
@@ -123,6 +125,7 @@ const VideoGroup = ( () => {
 } )();
 
 function Buttons( props ) {
+  // TODO: Move stuff from UserVideoBlock here.
   return <span></span>;
 }
 
@@ -193,7 +196,7 @@ const UserVideoBlock = connect( state => state )( class UserVideoBlock extends C
     // var { url, ...sendVideoData } = recordedVideo;
     var { ...sendVideoData } = recordedVideo;
     
-    this.props.dispatch( { type: 'X_SEND_REC', rec: sendVideoData, time: Date.now() } );
+    this.props.dispatch( { type: 'X_SEND_REC', videoData: sendVideoData, time: Date.now() } );
     
   }
   
@@ -201,19 +204,32 @@ const UserVideoBlock = connect( state => state )( class UserVideoBlock extends C
     var { webcam, getWebcam, stopWebcam, sendFeed, stream } = this.props;
     
     return (
-      <div>
+      <div style={{ marginBottom: '1em' }}>
       
-        <VideoBlock userId={ this.props.userId } src={ stream } onEnded={ e => {
-          // Would this ever even have an end?
-        } } />
+        <VideoBlock
+          userId={ this.props.userId }
+          src={ stream } onEnded={ e => {
+            // Would this ever even have an end?
+          } }
+          subBox={
+            // Should the SendBox be always below the instructor, or one's own video?
+            // (Probably partly depends on whether the corner is always the instr. Probably should be.)
+            <SendBox />
+          }
+        />
         <Box>
+          {/*
+            Buttons.
+            In practice, probably use icons. Also maybe merge Show/Send video.
+            Webcam icon for show/send, circle for record, square for stop, dunno
+            what for stop/send.
+          */}
           <button
             onClick={ webcam === 'OFF' ? getWebcam : stopWebcam }
             disabled={ webcam === 'WAIT' }
           >
             { { 'ON': 'Stop video', 'OFF': 'Show video', 'WAIT': '(Loading...)' }[ webcam ] }
           </button>
-          <br />
           <button
             onClick={ () => !this.state.recording ? this.recordStream() : this.stopRecording() }
             disabled={ webcam !== 'ON' }
@@ -221,14 +237,21 @@ const UserVideoBlock = connect( state => state )( class UserVideoBlock extends C
             { this.state.recording ? 'Stop recording' : 'Record'}
           </button>
           {
-            this.state.recording && <button
-              onClick={ async () => {
-                this.sendRecording( await this.stopRecording() );
-              } }
-            >Stop and send</button>
+            this.state.recording && <>
+              <button
+                onClick={ async () => {
+                  this.sendRecording( await this.stopRecording() );
+                } }
+              >Stop and send</button>
+            </>
           }
-          <br />
           <button onClick={ sendFeed } disabled={ webcam !== 'ON' }>Send feed</button>
+          <button onClick={ () => {
+            // TODO: Set up a (test version) system for continually recording
+            // and sending the bits, preferably interrupted at word-gap.
+            
+            // this.setState;
+          }}>Delayed</button>
         </Box>
         {
           !!this.state.recordedVideos.length && (
@@ -254,7 +277,6 @@ const UserVideoBlock = connect( state => state )( class UserVideoBlock extends C
             <br />
           </>
         }
-        <SendBox />
       </div>
     );
   }
@@ -275,140 +297,31 @@ const RecordingOptionsBox = function RecordingOptionsBox( props ) {
   </div>;
 };
 
-// (Not sure how rewinding and such would work here...)
-const VideoBlock = function VideoBlock( props ) {
-  var { userId, subBox, leftIcon } = props,
-    // src, time, onEnded, dispatch
-    baseHeight = 200,
-    baseWidth = 200;
-  
-  // Note: Self-views don't need the canvas, I think? Also student views.
-  // Don't spread props so much.
-  
-  return <div className='VideoBlock'>
-    <BasicVideoBlock { ...props } videoId={ props.userId } size={ 1 } />
-    <div className='VideoBlock-cornerBox'>
-      { props.cornerBox && <>
-        <BasicVideoBlock size={ 0.5 } time={ props.cornerBox.last_rec_time } { ...props.cornerBox } />
-        <TimeTicker startTime={ props.cornerBox.last_rec_time } />
-      </> }
-    </div>
-    <span>
-      { userId !== null ? 'Person' + userId : 'Loading...' }
-    </span>
-    <span style={{ float: 'left' }} >
-      { leftIcon }
-    </span>
-    { subBox }
-  </div>;
-};
-
-// This is the real 'raw' VideoBlock, with just src and such.
 /**
- * @param {String|MediaStream} props.src
- * @param {Number} props.time Number of seconds since start of video.
+ * Other participant's video block.
  */
-function BasicVideoBlock( { src, time, onEnded, videoId, size = 1, dispatch, transcript } ) {
-  var ref = useRef(),
-    canvasRef = useRef(),
-    baseHeight = 200 * size,
-    baseWidth = 200 * size;
-  
-  // Should this use useLayoutEffect instead to avoid waiting?
-  useEffect( () => {
-    let elem = ref.current,
-      canvas = canvasRef.current;
-    
-    // Avoid a white flash when switching videos by having a canvas behind the
-    // video to show the last frame until the new source is loaded.
-    var { videoWidth, videoHeight } = elem,
-      dVideoWidth = Math.min( videoWidth / videoHeight, 1 ) * baseWidth,
-      dVideoHeight = Math.min( videoHeight / videoWidth, 1 ) * baseHeight,
-      left = ( baseWidth - dVideoWidth ) / 2,
-      top = ( baseHeight - dVideoHeight ) / 2;
-    
-    if ( src ) {
-      canvasRef.current.getContext( '2d' ).drawImage( elem, left, top, dVideoWidth, dVideoHeight );
-    }
-    
-    if ( typeof src === 'object' ) {
-      
-      // Presumably a stream.
-      elem.pause();
-      elem.currentTime = 0; // Make sure we start at the beginning.
-      elem.src = undefined;
-      elem.srcObject = src;
-      elem.play();
-    } else {
-      elem.srcObject = undefined;
-      if ( typeof src === 'string' ) {
-        // Presumably a recording.
-        console.log( 'setting src and time', src, time, elem );
-        // TODO: Set .currentTime when resuming.
-        // Setting time could be difficult for other situations. We don't know
-        // how to tell set-0 -> (stay) from set-0 -> set-back-to-0 again...
-        // Can only check this on src change.
-        elem.src = src;
-        elem.currentTime = time;
-      } else {
-        // Undefined src. (Probably on init.)
-        // removeAttribute?
-        elem.removeAttribute( 'src' );
-      }
-    }
-    
-    // if ( src ) {
-    //   elem.addEventListener( 'canplaythrough', e => {
-    //     elem.play();
-    //   }, { once: true } );
-    // }
-  }, [ src ] );
-  
-  // useEffect( () => {
-  //   var ctx = canvasRef.current.width = ref.current.width;
-  // }, [] );
-  
-  useEffect( () => {
-    if ( dispatch ) {
-      var data = {
-        getCurrentTime: () => ref.current.currentTime
-      };
-      
-      dispatch( { type: 'REGISTER_VIDEO_PLAYER', data, videoId } );
-      
-      return () => dispatch( { type: 'UNREGISTER_VIDEO_PLAYER', videoId } );
-    }
-  }, [ videoId ] );
-  
-  // Note: Self-views don't need the canvas, I think? Also student views.
-  return <>
-    <canvas width={ baseWidth } height={ baseHeight } ref={ canvasRef } style={{ position: 'absolute', left: 0 }} />
-    <video
-      width={ baseWidth } height={ baseHeight } autoPlay
-      ref={ ref }
-      style={{ position: 'relative', zIndex: 1 }}
-      onEnded={ onEnded }
-    />
-    { transcript && <SubtitlesBox transcript={ transcript.length ? transcript : [ 
-      // Temporary, for testing.
-      { word: 'blah', end: 1000 },
-      { word: 'blah', end: 2000 },
-      { word: 'blah', end: 3000 },
-      { word: 'blah', end: 4000 },
-      { word: 'blah', end: 5000 },
-      { word: 'test', end: 6000 }
-    ] } startTime={ time } />}
-  </>;
-}
-
-function ExtVideoBlock( props ) {
-// const ExtVideoBlock = connect( ( state, ownProps ) => {
-//   // Or maybe be more specific about which properties?
-//   state.users[ ownProps.userId ]
+const ExtVideoBlock = connect( ( state, ownProps ) => {
+  // Or maybe be more specific about which properties?
+  var user = state.users.find( ( { userId } ) => userId === ownProps.userId );
+  return user;
+} )( function ExtVideoBlock( props ) {
 // )( class extends Component {
   console.log( 442, props );
   
-  var src = props.in.useLive === false ? props.in.recordingsQueue[ 0 ].src : props.streamSrc,
+  var [ stream, setStream ] = useState();
+  
+  useEffect( () => {
+    props.dispatch( { type: 'GET_STREAM', userId: props.userId } ).then( stream => {
+      setStream( stream );
+    } );
+    return () => {
+      // Emit signal to stop streaming?
+    };
+  }, [ props.userId ] );
+  
+  // TODO: Style with filter: blur( 5px ) when in.useLive === true && in.effects.includes( { type: 'BLUR' } );
+  
+  var src = props.in.useLive === false ? props.in.recordingsQueue[ 0 ].src : stream,
     cornerBox;
   
   if ( props.out.useLive ) {
@@ -421,7 +334,7 @@ function ExtVideoBlock( props ) {
   return <VideoBlock
     userId={ props.userId }
     src={ src }
-    time={ props.time }
+    time={ props.time /* ? */ }
     dispatch={ props.dispatch }
     onEnded={ e => {
       console.log( 4422, e, props );
@@ -442,19 +355,27 @@ function ExtVideoBlock( props ) {
       );
     } }>(HAND)</div> }
     subBox={ 
-      ( props.hand || props.chats.length > 0 ) && <div style={{ borderTop: '1px dashed #AAAAAA' }}>
+      ( /* props.hand || */ props.chats.length > 0 ) && <div style={{ borderTop: '1px dashed #AAAAAA' }}>
         
         { props.chats.map( ( chat, i ) => {
           // TODO: Fade out after some time, allow scrolling back into view somehow,
           // clicking should perform interrupt, have semi-transparent background,
           // place over video at the bottom? Show greyed timestamp?
+          
+          // Show some kind of icon at the right to indicate that clicking initiates
+          // an interrupt.
+          // Idea: When clicking during live, splits off.
+          // For non-instr view, should others' chats appear different when answered/interrupted?
           return <div key={ i }>{ chat.text }</div>;
         } ) }
       </div>
     }
   />;
-}
+} );
 
+/*
+TODO: Split off into separate component, with its own CSS file.
+*/
 const SendBox = connect(
   null,
   dispatch => ( { sendChat( text ) {
@@ -463,8 +384,9 @@ const SendBox = connect(
 )( function SendBox( { sendChat } ) {
   var inputRef = useRef();
   
+  // Still unsure whether this kind of singular chat entry box is the best way.
+  
   return <div>
-    <HandButton />
     <form
       onSubmit={ e => {
         e.preventDefault();
@@ -476,9 +398,10 @@ const SendBox = connect(
           inputRef.current.value = '';
         }
       } }
-      style={{display: 'inline-block'}}
+      style={{ display: 'flex', borderTop: '1px solid #AAA' }}
     >
-      <input ref={ inputRef } placeholder='' />
+      <HandButton />
+      <input ref={ inputRef } placeholder='Ask a question...' style={{ flex: 1, width: 100, padding: 3, border: 0, borderLeft: '1px solid #AAA' }} />
     </form>
   </div>;
 } );
@@ -488,88 +411,9 @@ const HandButton = connect( state => ( { hand: state.hand } ) )( function HandBu
     onClick={ e => {
       props.dispatch( { type: 'X_HAND', raised: !props.hand } );
     } }
-    style={ { border: '1px solid #AAA', boxShadow: props.hand ? '0 0 2px inset #000000' : '', display: 'inline-block' } }
+    style={ { boxShadow: props.hand ? '0 0 2px inset #000000' : '', display: 'inline-block', padding: 3 } }
   >Hand</div>;
 } );
-
-function SubtitlesBox( { transcript, startTime } ) {
-  // This is primarily for instructor-self-views.
-  // I'm thinking a semitransparent grey-black box at the bottom of the video,
-  // with the time-offset on the left, and the subtitles stream maybe
-  // horizontal-scrolling? White text, maybe current word bolded. Show future
-  // words where available?
-  // Possibly necessary: A way to show more context, in situations where one
-  // continuity comes into focus. A few words on screen might not be enough to
-  // tell context, if instr was not paying attention.
-  // Something to show more words...
-  // 
-  
-  // First, follow the stream.
-  
-  // Maybe position: absolute to bottom.
-  
-  // The native one is low quality. Google's and Amazon's are much better, but cost money. (A's is ~$1.50/hour, G's ~$3/hour.)
-  
-  // We only know when a word ends, not when it begins. Assume that words start
-  // right after prior word ends.
-  
-  // transcript.length || ( transcript = [ { word: 'blah', end: 1000 } ] );
-  
-  const [ time, setTime ] = useState( startTime * 1000 ),
-    index = transcript.findIndex( word => word.end > time ),
-    ongoing = index !== -1,
-    endTime = ongoing && transcript[ index ] && transcript[ index ].end,
-    past = transcript.slice( 0, ongoing ? index : undefined ),
-    current = ongoing && transcript.slice( index ).filter( word => word.end === transcript[ index ].end ),
-    ref = useRef();
-  
-  useEffect( () => {
-    var timeUntilNext = endTime - time,
-      timer = ongoing && setTimeout( () => {
-        // Actually, shouldn't this use Date()?
-        setTime( time => time + timeUntilNext );
-      }, timeUntilNext );
-    
-    return () => {
-      clearTimeout( timer );
-    };
-  }, [ time ] );
-  
-  useEffect( () => {
-    var elem = ref.current;
-    
-    elem.style.marginLeft = '-' + Math.max( 0, elem.offsetWidth - elem.parentNode.offsetWidth ) + 'px';
-  }, [ past, current ] );
-  
-  return <div className='SubtitlesBox'>
-    <span className='SubtitlesBox-inner' ref={ ref }>
-      <span>
-        { past.map( item => item.word ).join( ' ' ) }
-      </span>
-      { ' ' }
-      <span style={{ fontWeight: 'bold' }}>
-        { current && current.map( item => item.word ).join( ' ' ) }
-      </span>
-    </span>
-  </div>;
-  
-}
-
-function TimeTicker( { startTime } ) {
-  var [ time, setTime ] = useState( startTime ),
-    // TODO: Remove duplication with ROB.
-    lengthInSeconds = time / 1000;
-  
-  useEffect( () => {
-    var start = Date.now(),
-      timer = setInterval( () => setTime( Date.now() - start ), 1000 );
-    return () => clearInterval( timer );
-  }, [ startTime ] );
-  
-  return <span className='TimeTicker'>
-    { Math.floor( lengthInSeconds / 60 ) + ':' + Math.floor( lengthInSeconds % 60 ).toString().padStart( 2, 0 ) }
-  </span>;
-}
 
 // Not sure canvas will ever be needed here. Recorded and live videos both work in video tags.
 class CanvasBlock extends Component {

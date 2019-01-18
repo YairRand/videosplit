@@ -11,6 +11,7 @@ export default store => {
       
       var type = action.type.substr( 2 );
       
+      console.log( 'emitting', { ...action } );
       socket.emit(
         action.toUser ? 'toUser' : 'out',
         // They'll receive it as 'IN', so...
@@ -23,7 +24,16 @@ export default store => {
       // Currently unused.
       return socket.emit( 'out', action.payload );
     } else {
-      return next( action ); 
+      switch ( action.type ) {
+        case 'GET_STREAM':
+          return socket.getStream( action.userId );
+        case 'SEND_STREAM':
+          return socket.sendStream( action.stream );
+        case 'STOP_STREAM':
+          return socket.stopStream( action.userId );
+        default:
+          return next( action );
+      }
     }
   };
 };

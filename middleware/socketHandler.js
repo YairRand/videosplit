@@ -1,5 +1,5 @@
 import io from 'socket.io-client';
-import createRTCStream from './rtcHandler';
+import createRTCConnection from './rtcHandler';
 
 const socket = io();
 
@@ -8,8 +8,16 @@ const socket = io();
 export default ( store => {
   
   const { dispatch, getState } = store,
-    emit = socket.emit.bind( socket );
+    connections = {},
+    streams = {};
   
+  let outStream;
+  
+  function sendStreamTo( connection ) {
+    outStream.getTracks().forEach( track => connection.addTrack( track, outStream ) );
+  }
+  
+  // TODO: Self-initialize.
   function init() {
     
     socket.emit( 'test', 'blah' );
@@ -32,7 +40,13 @@ export default ( store => {
           } );
           console.log( 'START_DATA', msg );
           
+          // TODO: Initial recordings available from earlier?
+          
           dispatch( { type: 'START_DATA', userId: msg.startData.userId, users } );
+          
+          msg.startData.intMods && msg.startData.intMods.forEach( intMod => {
+            dispatch( { type: 'ADD_INTMOD', modtype: intMod.type, id: intMod.id } );
+          } );
           break;
         }
         case 'userConnect': {
@@ -50,8 +64,8 @@ export default ( store => {
           
           // TODO: This should be a more general thing.
           // Certain properties should have blobs replaced with urls, but not
-          // before sending.
-          // IN_SEND_REC and OUT_SEND_REC, or something.
+          // before sending. (Inward conversion is in socketMiddleware, replacing .blob with .src.)
+          // IN_SEND_REC and OUT_SEND_REC, or something. (Done.)
           
           var { blob, ...videoData } = msg.rec,
             src = URL.createObjectURL( new Blob( [ blob ], { type: msg.rec.type } ) );
@@ -59,13 +73,16 @@ export default ( store => {
           dispatch( { ...videoData, type: 'RECEIVE_REC', fromUser, src } );
           
           break;
+          
+          case 'INTMOD_EVT':
+            // Local dispatch, somehow.
+            msg.id;
+            break;
       }
       
       if ( msg.type && msg.type.startsWith( 'IN_' ) ) {
-        if ( msg.rec && msg.rec.blob ) {
-          msg.rec.src = URL.createObjectURL( new Blob( [ msg.rec.blob ], { type: msg.rec.type } ) );
-          delete msg.rec.blob;
-        }
+        // Should .blob be in .meta? TODO: Look into .meta standards.
+        
         dispatch( { ...msg, meta: { ...msg.meta, dir: 'in' } } );
       }
       
@@ -74,10 +91,17 @@ export default ( store => {
   }
   
   function newUser( from ) {
-    var rtcStream = createRTCStream( from, socket ),
-      pc = rtcStream.pc;
+    var rtcConnection = createRTCConnection( from, socket ),
+      pc = rtcConnection.pc;
     
-    rtcStream.connected.then( ( newSrc ) => {
+    streams[ from ] = rtcConnection.connected;
+    connections[ from ] = pc;
+    
+    if ( outStream ) {
+      sendStreamTo( pc );
+    }
+    
+    rtcConnection.connected.then( ( newSrc ) => {
       dispatch( { type: 'RECEIVE_STREAM', fromUser: from, newSrc } );
     } );
     
@@ -88,13 +112,51 @@ export default ( store => {
     // } );
     
     return {
-      userId: from,
-      pc
+      userId: from
+      // TODO: Remove.
+      // pc
     };
   }
   
   init();
   
-  // Maybe add a wrapper.
-  return socket;
+  return {
+    emit: socket.emit.bind( socket ),
+    /**
+     * @returns {Promise.<MediaStream>}
+     */
+    getStream( userId ) {
+      return streams[ userId ];
+    },
+    /**
+     * @param {MediaStream} stream
+     */
+    sendStream( stream ) {
+      if ( !outStream ) {
+        outStream = stream;
+        
+        Object.values( connections ).forEach( sendStreamTo );
+      }
+    },
+    stopStream( userId ) {
+      // TODO.
+      // Need two different functions:
+      // * Emit a signal to stop the incoming stream.
+      // * Stop sending current stream, either to particular user or in general. (Actually, the former might not be necessary.)
+      Object.values( streams ).forEach( outStream => {
+        // TODO.
+      } );
+    },
+    stopStreamFrom( userId ) {
+      // Emit.
+      socket.emit;
+    },
+    stopStreamTo( userId ) {
+      // No wait, not necessary. Handle from socket handler.
+    },
+    stopSendingFeed() {
+      // Stop to all users.
+      streams;
+    }
+  };
 } );

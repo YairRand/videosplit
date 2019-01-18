@@ -31,10 +31,12 @@ function users( state = [], action ) {
       return [ ...state, { ...newUser(), ...action.user } ];
     case 'USER_DISCONNECT':
       return state.filter( user => user.userId !== action.userId );
-    case 'RECEIVE_STREAM':
-      return modItem( state, action.fromUser, state => ( { src: action.newSrc, streamSrc: action.newSrc } ) );
+    // case 'RECEIVE_STREAM':
+    //   // TODO: Don't store stream in store.
+    //   // return modItem( state, action.fromUser, state => ( { src: action.newSrc, streamSrc: action.newSrc } ) );
+    //   break;
     case 'IN_SEND_REC': {
-      let { src, length, transcript } = action.rec;
+      let { src, length, transcript } = action.videoData;
       
       return modItem( state, action.fromUser, state => ( {
         in: {
@@ -57,7 +59,7 @@ function users( state = [], action ) {
       // Assume sending to all participants.
       // Eventually, allow for sending to only particular participants.
       // toUsers: [], perhaps. (Actually, that could be confused with for none?)
-      let { src, length, transcript } = action.rec;
+      let { src, length, transcript } = action.videoData;
       return state.map( state => ( { ...state, out: { ...state.out, useLive: false, recordingsQueue: [ ...state.out.recordingsQueue, {
         src, length, transcript, last_rec_time: 0,
         // TODO: Get rid of the 'startTime' stuff.
@@ -79,8 +81,8 @@ function users( state = [], action ) {
       // getVideoCurrentTime is filled in by videoPlayerMiddleware.
       
       return modItem( state, action.fromUser, state => {
-        var last_rec_time = action.getVideoCurrentTime,
-          oldQueue = state.in.recordingsQueue,
+        var oldQueue = state.in.recordingsQueue,
+          last_rec_time = action.getVideoCurrentTime,
           recordingsQueue = oldQueue.length ? [ { ...oldQueue[ 0 ], last_rec_time }, ...oldQueue.slice( 1 ) ] : [];
         
         return { in: { ...state.in, useLive: true, recordingsQueue } };
@@ -89,8 +91,8 @@ function users( state = [], action ) {
       return modItem( state, action.toUser, state => {
         // console.log( 5550, recording, state.out.recordingsQueue );
         // This breaks if recordingsQueue is empty. TODO.
-        var last_rec_time = ( action.time - state.out.recordingsQueue[ 0 ].startTime ) / 1000,
-          oldQueue = state.out.recordingsQueue,
+        var oldQueue = state.out.recordingsQueue,
+          last_rec_time = oldQueue.length && ( action.time - oldQueue[ 0 ].startTime ) / 1000,
           recordingsQueue = oldQueue.length ? [ { ...oldQueue[ 0 ], last_rec_time }, ...oldQueue.slice( 1 ) ] : [];
         // / 1000 because video players use seconds instead of milliseconds.
         return { out: { ...state.out, useLive: true, recordingsQueue }, interrupting: true };
@@ -103,7 +105,23 @@ function users( state = [], action ) {
       return modItem( state, action.fromUser, state => ( { chats: [ ...state.chats, action.chat ] } ) );
     case 'IN_HAND':
       return modItem( state, action.fromUser, state => ( { hand: action.raised } ) );
-    
+    case 'IN_APPLY_EFFECT':
+      // Apply visual effect, like blur.
+      // Need separate things for live effects and recordings' effects.
+      return modItem( state, action.fromUser, state => {
+        // Mostly just an idea.
+        var currentEffects = [ ...state.in.effects ];
+        action.effects.forEach( effect => {
+          let { type, enable, ...otherProps } = effect;
+          currentEffects = currentEffects.filter( cEffect => cEffect.type === type );
+          if ( effect.enable === true ) {
+            if ( enable ) {
+              currentEffects.push( { type, ...otherProps } );
+            }
+          }
+        } );
+        return { in: { ...state.in, effects: currentEffects } };
+      } );
     
     default:
       return state;
@@ -114,7 +132,7 @@ function newUser() {
   return {
     chats: [],
     hand: false,
-    in: { useLive: true, recordingsQueue: [] },
+    in: { useLive: true, recordingsQueue: [], effects: [] },
     out: { useLive: true, recordingsQueue: [] }
     // recordingsQueue: [ { last_rec_time, length, src, transcript, time?: 0 } ]
     // Need to store time in each video, as we can splice in videos before others, eg to answer a question.
@@ -122,7 +140,7 @@ function newUser() {
     // userId
     // src, // Deprecating
     // last_rec // Deprecating
-    // streamSrc,
+    // streamSrc, // Deprecating
   };
 }
 
@@ -141,8 +159,24 @@ function hand( state = false, action ) {
   }
 }
 
+function intMods( state = [], action ) {
+  switch ( action.type ) {
+    case 'ADD_INTMOD':
+      return [ ...state, { type: action.modtype, id: action.id } ];
+    case 'REMOVE_INTMOD':
+      break;
+    case 'IN_INTMOD_EVT':
+      // Keep it simple for now. Just overwrite the whole thing each time.
+      // ...I don't like this.
+      return state.map( intmod => intmod.id === action.id ? action.state : state );
+    default:
+      return state;
+  }
+}
+
 export default combineReducers( {
   userId,
   users,
-  hand
+  hand,
+  intMods
 } );

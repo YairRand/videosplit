@@ -4,22 +4,50 @@
     <meta charset="utf-8">
     <title>Split test</title>
     <style>
-      iframe {
+      html, body {
+        height: 100%;
+        margin: 0;
+      }
+      .addButton {
         position: absolute;
         top: 0;
-        left: 0;
-        width: calc( 50% - 5px );
+        right: 0;
+        border: 1px solid #AAA;
+        padding: 3px;
+        width: 2em;
+        height: 2em;
+        background-color: white;
+        z-index: 2;
+        opacity: 0.6;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+      }
+      .container {
+        height: 100%;
+        display: flex;
+      }
+      iframe {
         height:100%;
         outline: 1px solid #AAA;
         border: 1px solid #AAA;
-      }
-      iframe + iframe {
-        left: 50%;
+        border-width: 0 1px;
+        flex: 1;
       }
     </style>
+    <script type="text/javascript">
+      onload = () => {
+        document.querySelector( '.addButton' ).onclick = () => {
+          document.querySelector( '.container' ).appendChild( document.createElement( 'iframe' ) ).src = 'http://localhost:3000';
+        };
+      };
+    </script>
   </head>
   <body>
-    <iframe src="http://localhost:3000"></iframe>
-    <iframe src="http://localhost:3000"></iframe>
+    <div class='addButton'>+</div>
+    <div class='container'>
+      <iframe src="http://localhost:3000"></iframe>
+      <iframe src="http://localhost:3000"></iframe>
+    </div>
   </body>
 </html>

@@ -9,7 +9,10 @@ import socketMiddleware from './middleware/socketMiddleware';
 import videoPlayerMiddleware from './middleware/videoPlayerMiddleware';
 
 var middleware = applyMiddleware(
+    
+    // Handles video caching between client and server.
     recordingsMiddleware,
+    
     // Should RTC connections be stored in middleware?
     
     // Can we store videos as ids in store, and store the actual videos somewhere else?
@@ -20,6 +23,7 @@ var middleware = applyMiddleware(
     
     // Handles type 'EMIT' and transforms all 'X_ACTION' into 'OUT_ACTION' locally
     // and 'IN_ACTION' for all other users.
+    // Also handles 'GET_STREAM', 'SEND_STREAM', and 'STOP_STREAM', which deal with webrtc connections.
     socketMiddleware,
     
     // Handles types 'REGISTER_VIDEO_PLAYER', 'UNREGISTER_VIDEO_PLAYER', and transforms prop 'getVideoCurrentTime'.

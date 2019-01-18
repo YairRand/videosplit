@@ -1,12 +1,11 @@
 var express = require( 'express' ),
   app = express(),
-  socketIO = require( 'socket.io' ),
   http = require( 'http' ),
   server = http.Server( app ),
-  ioServer = socketIO( server ),
   webpack = require( 'webpack' ),
   wpConfig = require( './webpack.config' ),
-  compiler = webpack( wpConfig );
+  compiler = webpack( wpConfig ),
+  sockets = require( './serverSocketHandler' );
   
 app.use( require( 'webpack-dev-middleware' )( compiler, {
   publicPath: '/'
@@ -29,84 +28,4 @@ app.get( '/split', ( req, res ) => {
   } );
 } );
 
-// Socket stuff.
-var clicked = 0,
-  latestUser = 0,
-  users = [],
-  allRecordings = [];
-
-ioServer.on( 'connection', function ( socket ) {
-  var userId = latestUser++,
-    recordings = [];
-  
-  socket.emit( 'spoo', 'successfully connected. userId = ' + userId );
-  
-  socket.emit( 'in', {
-    type: 'startData',
-    startData: {
-      userId,
-      users: users.map( user => ( { userId: user.userId } ) )
-    }
-  } );
-  
-  users.push( { userId, socket, recordings } );
-  
-  socket.broadcast.emit( 'userconnect', userId );
-  
-  socket.broadcast.emit( 'in', {
-    type: 'userConnect',
-    'userConnect': {},
-    fromUser: userId
-  } );
-  
-  socket.broadcast.emit( 'spoo', 'Other user connected: User' + userId );
-  
-  socket.on( 'test', msg => {
-    console.log( 'test message received by server', clicked, msg );
-    clicked++;
-    socket.emit( 'test2', 'User' + userId + ': ' + msg + clicked );
-  } );
-  
-  socket.on( 'toUser', msg => {
-    msg.fromUser = userId;
-    
-    var toUsers = Array.isArray( msg.toUser ) ? msg.toUser : [ msg.toUser ];
-    
-    users.forEach( target => {
-      if ( toUsers.includes( target.userId ) && target.socket ) {
-        target.socket.emit( 'in', msg );
-      }
-    } );
-  } );
-  
-  socket.on( 'out', msg => {
-    // TODO: Merge with above, somehow.
-    console.log( 'outthing' );
-    msg.fromUser = userId;
-    
-    socket.broadcast.emit( 'in', msg );
-  } );
-  
-  socket.on( 'register_video', ( msg ) => {
-    recordings.push( msg.videoData );
-  } );
-  
-  socket.on( 'request_video', ( { id }, respond ) => {
-    respond( recordings.find( recording => recording.id === id ) );
-  } );
-  
-  socket.on( 'disconnect', () => {
-    socket.broadcast.emit( 'in', {
-      type: 'userDisconnect',
-      'userDisconnect': {},
-      fromUser: userId
-    } );
-    users = users.filter( user => user.userId !== userId );
-  } );
-  console.log( 939 );
-} );
-
-
-server.listen( 3000, function() {
-  console.log('boh');
-});
+sockets.start( server );
