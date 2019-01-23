@@ -117,7 +117,10 @@ module.exports = {
         
         sendToUsers(
           msg,
-          toUsers.map( toUser => users.find( user => user.userId === toUser ) )
+          toUsers
+            .map( toUser => users.find( user => user.userId === toUser ) )
+            // In case a user disconnected since the msg was sent.
+            .filter( toUser => toUser )
         );
         
         // users.forEach( target => {

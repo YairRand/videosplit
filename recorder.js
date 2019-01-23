@@ -42,7 +42,7 @@ const transcription = ( function init() {
       } );
     };
     [ 'onstart', 'onend', 'onerror', 'onsoundstart', 'onsoundend', 'onaudiostart', 'onaudioend', 'onspeechstart', 'onspeechend' ].forEach( et => {
-      SR[ et ] = e => console.log( et, e );
+      SR[ et ] = e => console.log( 'SR', et, e );
     } );
     SR.onstart = e => {
       console.log( 'begin speech recognition' );
@@ -54,9 +54,9 @@ const transcription = ( function init() {
       // Also need to restart the SR.
       console.log( 'speechend, starting' );
     };
-    SR.onend = e => {
-      // SR.start();
-    };
+    // SR.onend = e => {
+    //   // SR.start();
+    // };
     
     return {
       start() {
@@ -66,8 +66,10 @@ const transcription = ( function init() {
         uncertainWords.splice( 0 );
       },
       getWords() {
-        SR.stop();
         return [ ...words, ...uncertainWords ];
+      },
+      stop() {
+        SR.stop();
       }
     };
   } else {
@@ -77,6 +79,8 @@ const transcription = ( function init() {
       start(){},
       getWords() {
         return [];
+      },
+      stop(){
       }
     };
   }
@@ -84,8 +88,15 @@ const transcription = ( function init() {
 
 export default function record( stream ) {
   var chunks = [],
-    recorder = new MediaRecorder( stream, { video: true, audio: true } ),
-    recordingStart = Date.now();
+    recorder = new MediaRecorder( stream, {
+      // Are these actually the kind of options MR uses? TODO.
+      video: true, audio: true
+      // Might have to make this mandatory.
+      // mimeType: 'video/webm;codecs=vp8,opus'
+    } ),
+    recordingStart = Date.now(),
+    // Only use if sequence.
+    sequenceId;
   
   recorder.ondataavailable = ( e ) => {
     // NOTE: Only the first chunk, or the collection of all chunks until .stop() will work.
@@ -95,31 +106,66 @@ export default function record( stream ) {
   
   transcription.start();
   
-  // Send out chunks every X amount of time so that there's less loading time
-  // when we need to switch to a just-finished recording.
+  // TODO: Send out chunks every X amount of time so that there's less loading
+  // time when we need to switch to a just-finished recording.
+  // For now, just split into chunks.
   recorder.start( 3000 );
   
-  return function stopRecording() {
-    return new Promise( resolve => {
-      recorder.addEventListener( 'stop', () => {
-        var type = chunks[ 0 ].type,
-          newBlob = new Blob( chunks, { type } ),
-          recordedVideo = {
-            type,
-            ts: Date.now().toString(),
-            src: URL.createObjectURL( newBlob ),
-            // Hope this is accurate...
-            // If not, maybe set a video to the url and read .duration.
-            length: Date.now() - recordingStart,
-            transcript: transcription.getWords(),
-            id: Math.random(),
-            blob: newBlob
-          };
+  return {
+    stop: function stopRecording() {
+      return new Promise( resolve => {
+        recorder.addEventListener( 'stop', () => {
+          var type = chunks[ 0 ].type,
+            now = Date.now(),
+            newBlob = new Blob( chunks, { type } ),
+            recordedVideo = {
+              type,
+              ts: now.toString(),
+              // Why is this here?
+              src: URL.createObjectURL( newBlob ),
+              // Hope this is accurate...
+              // If not, maybe set a video to the url and read .duration.
+              length: now - recordingStart,
+              transcript: transcription.getWords(),
+              id: Math.random(),
+              blob: newBlob
+            };
+          
+          resolve( recordedVideo );
+        }, { once: true } );
         
-        resolve( recordedVideo );
-      }, { once: true } );
-      
-      recorder.stop();
-    } );
+        transcription.stop();
+        recorder.stop();
+      } );
+    },
+    slice() {
+      // TODO: Reduce duplication with above.
+      return new Promise( resolve => {
+        recorder.requestData();
+        recorder.addEventListener( 'dataavailable', e => {
+          var // chunks = [ e.data ],
+            type = chunks[ 0 ].type,
+            sentChunks = [ ...chunks ],
+            now = Date.now(),
+            firstInSequence = sequenceId === undefined,
+            recordedVideo = {
+              type,
+              ts: now.toString(),
+              // TODO:
+              length: now - recordingStart,
+              transcript: transcription.getWords(),
+              id: Math.random(),
+              sequenceId: sequenceId || ( sequenceId = Math.random() ),
+              chunks: sentChunks,
+              firstInSequence
+            };
+          
+          recordingStart = now;
+          chunks = [];
+          
+          resolve( recordedVideo );
+        }, { once: true } );
+      } );
+    }
   };
 }

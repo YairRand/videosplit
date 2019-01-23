@@ -11,6 +11,7 @@ import IntMods from '../interaction_modules/main';
 // * Stop feed button.
 // * Module-ize some stuff.
 // * Allow stream to show on a delay.
+// ** Sort-of done?
 // * Fix autoplay issues.
 // * Fix bug where everything explodes on unclicking ext's hand when no recording.
 // * Look into PiP API, see if it's usable.
@@ -19,6 +20,31 @@ import IntMods from '../interaction_modules/main';
 // * Set up concatenating consecutive videos without losing transcripts or smoothness.
 // * Fix time indicator after interrupt.
 // * HMR.
+
+// * Timers mechanism. (use array, clearTimeout and restart when time changes.)
+// ** Chats need time param, and to hook into the timers system. When on delay,
+//    chats should be sent relating to time.
+// *** Should that be handled server-side? Seems simpler than sending the server
+//     a different chat msg for each user.
+// *** Similar for intmods.
+// * Need a way to manage catch-up, in cases where subscription-to-anwser happens
+//   moments after stream starts. Requires either gradual speedup or slowdown on
+//   the other end. (General: Good idea to keep tracks in clusters.)
+// ** Speedup: A/V can theoretically be captured using MediaStreamAudioSourceNode
+//    (using DelayNode/playbackRate, probably) and canvas (paint from element).
+//    Requires muting video element, perhaps.
+// * 'User is typing'. Might not use, but write the code to have it available.
+// * Change regular timer display to also show time until end?
+// * Visual indicator of audio source.
+
+// * Fix Chrome->FF sendFeed breaking.
+// ** FF gives error message "ICE failed, add a STUN server and see about:webrtc for more details".
+//    Dunno if that's accurate. Looks like it gets successful addTrack events.
+//    Also, it works after a FF-side refresh?
+//    Also works after show->stop video on FF-side.
+
+// * Fix FF MediaSource issues, incl outgoing (uses webm which is unsupported by
+//   Chrome) and incoming (breaks up and/or freezes after short time).
 
 console.log( 'START' );
 
@@ -166,7 +192,7 @@ const UserVideoBlock = connect( state => state )( class UserVideoBlock extends C
       recording: false // TODO: Set to 'WAIT'
     } );
     
-    var recordedVideo = await this.recorder(),
+    var recordedVideo = await this.recorder.stop(),
       { blob: newBlob, ...videoData } = recordedVideo;
     
     this.setState( {
@@ -194,10 +220,29 @@ const UserVideoBlock = connect( state => state )( class UserVideoBlock extends C
     
     // TODO: url should be dispatched, but not sent.
     // var { url, ...sendVideoData } = recordedVideo;
+    
+    // TODO: When on delay, first cut off the slice, end it, and send it.
+    // After dispatching SEND_REC, re-start the delay.
+    
     var { ...sendVideoData } = recordedVideo;
     
     this.props.dispatch( { type: 'X_SEND_REC', videoData: sendVideoData, time: Date.now() } );
     
+  }
+  
+  async sliceRecording() {
+    var slice = await this.recorder.slice();
+    this.sendSlice( slice );
+    return slice;
+  }
+  
+  sendSlice( recordedVideo ) {
+    console.log( 'sendSlice', recordedVideo );
+    this.props.dispatch( {
+      type: recordedVideo.firstInSequence ? 'X_SEND_REC' : 'X_EXTEND_SEQ',
+      videoData: { ...recordedVideo },
+      time: Date.now()
+    } );
   }
   
   render() {
@@ -243,15 +288,18 @@ const UserVideoBlock = connect( state => state )( class UserVideoBlock extends C
                   this.sendRecording( await this.stopRecording() );
                 } }
               >Stop and send</button>
+              <button onClick={ async () => {
+                // Should delay be handled on the server side? We can have different
+                // delays for different users.
+                
+                var slice = () => this.sliceRecording(),
+                  firstSlice = await slice(),
+                  timer = setInterval( slice, Math.max( firstSlice.length / 2, 1000 ) || 1000 );
+                
+              }}>Delayed</button>
             </>
           }
           <button onClick={ sendFeed } disabled={ webcam !== 'ON' }>Send feed</button>
-          <button onClick={ () => {
-            // TODO: Set up a (test version) system for continually recording
-            // and sending the bits, preferably interrupted at word-gap.
-            
-            // this.setState;
-          }}>Delayed</button>
         </Box>
         {
           !!this.state.recordedVideos.length && (
@@ -366,7 +414,10 @@ const ExtVideoBlock = connect( ( state, ownProps ) => {
           // an interrupt.
           // Idea: When clicking during live, splits off.
           // For non-instr view, should others' chats appear different when answered/interrupted?
-          return <div key={ i }>{ chat.text }</div>;
+          return <div key={ i }>
+            { chat.text }
+            { /* props.in.recordingsQueue.length */ }
+          </div>;
         } ) }
       </div>
     }

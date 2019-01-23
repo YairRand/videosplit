@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 
 // (Not sure how rewinding and such would work here...)
 // Does this really need to be aware of userId? Seems like it should be separate.
@@ -13,7 +13,12 @@ const VideoBlock = function VideoBlock( props ) {
     <BasicVideoBlock { ...props } videoId={ props.userId } size={ 1 } />
     <div className='VideoBlock-cornerBox'>
       { props.cornerBox && <>
-        <BasicVideoBlock size={ 0.5 } time={ props.cornerBox.time } { ...props.cornerBox } />
+        <BasicVideoBlock
+          size={ 0.5 }
+          time={ props.cornerBox.time }
+          muted={ true }
+          { ...props.cornerBox }
+        />
         <TimeTicker startTime={ props.cornerBox.time } />
       </> }
     </div>
@@ -42,7 +47,8 @@ function BasicVideoBlock( { src, time, onEnded, videoId, size = 1, dispatch, tra
     baseWidth = 200 * size;
   
   // Should this use useLayoutEffect instead to avoid waiting?
-  useEffect( () => {
+  // false && 
+  useLayoutEffect( () => {
     let elem = ref.current,
       canvas = canvasRef.current,
       timer;
@@ -56,7 +62,49 @@ function BasicVideoBlock( { src, time, onEnded, videoId, size = 1, dispatch, tra
       top = ( baseHeight - dVideoHeight ) / 2;
     
     if ( src ) {
-      canvasRef.current.getContext( '2d' ).drawImage( elem, left, top, dVideoWidth, dVideoHeight );
+      let ctx = canvasRef.current.getContext( '2d' );
+      
+      ctx.drawImage( elem, left, top, dVideoWidth, dVideoHeight );
+      
+      // For testing.
+      // ctx.fillStyle = 'rgba( 0, 255, 255, 0.5 )';
+      // ctx.fillRect( 0, 0, dVideoWidth, dVideoHeight );
+    }
+    
+    function playVideo() {
+      var onclick;
+      
+      function tryPlayAgain() {
+        console.log( 'play didn\'t work, trying again' );
+        timer = setTimeout( () => {
+          elem.play()
+            .then( () => {
+              // Success.
+              document.body.removeEventListener( 'click', onclick );
+              console.log( 'successful play' );
+            } )
+            .catch( e => {
+              tryPlayAgain();
+            } );
+        }, 400 );
+      }
+      
+      elem.play()
+        .catch( e => {
+          // TODO: Show visual indicator to click.
+          // TODO: Remove this event handler early if src changes. Also if
+          // one of the tryPlayAgain's work.
+          
+          // Retry playing, and set a listener to try again.
+          // (Some browsers only allow first play in direct reaction to click.)
+          document.body.addEventListener( 'click', onclick = () => {
+            elem.play();
+            clearTimeout( timer );
+          }, { once: true } );
+          
+          tryPlayAgain();
+          // I think there was supposed to be a dedicated thing for checking "is active" or something?
+        } );
     }
     
     if ( typeof src === 'object' ) {
@@ -67,27 +115,11 @@ function BasicVideoBlock( { src, time, onEnded, videoId, size = 1, dispatch, tra
       elem.removeAttribute( 'src' );
       // elem.src = undefined;
       elem.srcObject = src;
-      ( function tryPlayAgain() {
-        var firstTry = true;
-        elem.play().catch( e => {
-          if ( firstTry ) {
-            // TODO: Show visual indicator to click.
-            // TODO: Remove this event handler early if src changes. Also if
-            // one of the tryPlayAgain's work.
-            document.body.addEventListener( 'click', () => {
-              elem.play();
-              clearTimeout( timer );
-            }, { once: true } );
-          }
-          timer = setTimeout( tryPlayAgain, 400 );
-          firstTry = false;
-          console.log( 'play didn\'t work, trying again' );
-        } );
-      } )();
+      playVideo();
     } else {
       elem.srcObject = undefined;
       if ( typeof src === 'string' ) {
-        // Presumably a recording.
+        // Presumably a recording, or a mediasource-url (delayed stream of recordings).
         console.log( 'setting src and time', src, time, elem );
         // TODO: Set .currentTime when resuming.
         // Setting time could be difficult for other situations. We don't know
@@ -95,13 +127,9 @@ function BasicVideoBlock( { src, time, onEnded, videoId, size = 1, dispatch, tra
         // Can only check this on src change.
         elem.src = src;
         elem.currentTime = time;
-        elem.play().catch( e => {
-          console.log( 'play', e );
-          // TODO: Retry playing, or set a listener to try again.
-          // I think there was supposed to be a dedicated thing for checking "is active" or something?
-          // If not, try mousemove/click {once:true} or something.
-        } );
+        playVideo();
       } else {
+        console.log( 'removing src' );
         // Undefined src. (Probably on init.)
         // removeAttribute?
         elem.removeAttribute( 'src' );
@@ -142,6 +170,7 @@ function BasicVideoBlock( { src, time, onEnded, videoId, size = 1, dispatch, tra
   
   // Note: Self-views don't need the canvas, I think? Also student views.
   // autoPlay
+  // TODO: Add poster={ loading image thing }, I think? Or maybe just put a spinner over it.
   return <>
     <canvas width={ baseWidth } height={ baseHeight } ref={ canvasRef } style={{ position: 'absolute', left: 0 }} />
     <video

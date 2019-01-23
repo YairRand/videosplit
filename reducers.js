@@ -36,7 +36,8 @@ function users( state = [], action ) {
     //   // return modItem( state, action.fromUser, state => ( { src: action.newSrc, streamSrc: action.newSrc } ) );
     //   break;
     case 'IN_SEND_REC': {
-      let { src, length, transcript } = action.videoData;
+      // TODO: Remove sequenceId after splitting off sequences.
+      let { src, length, transcript, sequenceId } = action.videoData;
       
       return modItem( state, action.fromUser, state => ( {
         in: {
@@ -44,6 +45,7 @@ function users( state = [], action ) {
           useLive: false,
           recordingsQueue: [ ...state.in.recordingsQueue, {
             src, length, transcript,
+            sequenceId,
             // Time to start playing from. (Used in case video is paused and later started again from point left off.)
             // Should this be renamed "time"?
             last_rec_time: 0
@@ -59,13 +61,43 @@ function users( state = [], action ) {
       // Assume sending to all participants.
       // Eventually, allow for sending to only particular participants.
       // toUsers: [], perhaps. (Actually, that could be confused with for none?)
-      let { src, length, transcript } = action.videoData;
+      let { src, length, transcript, sequenceId } = action.videoData;
       return state.map( state => ( { ...state, out: { ...state.out, useLive: false, recordingsQueue: [ ...state.out.recordingsQueue, {
         src, length, transcript, last_rec_time: 0,
+        sequenceId,
         // TODO: Get rid of the 'startTime' stuff.
         startTime: action.time, time: 0
       } ] } } ) );
     }
+    case 'IN_EXTEND_SEQ': {
+      let { length, transcript, sequenceId } = action.videoData;
+      return modItem( state, action.fromUser, state => ( {
+        in: {
+          ...state.in,
+          recordingsQueue: state.in.recordingsQueue.map( rec => {
+            if ( rec.sequenceId === sequenceId ) {
+              return { ...rec, length: rec.length + length, transcript };
+            } else {
+              return rec;
+            }
+          } )
+        }
+      } ) );
+    }
+    case 'OUT_EXTEND_SEQ': {
+      let { length, transcript, sequenceId } = action.videoData;
+      return state.map( state => ( { ...state, out: {
+        ...state.out,
+        recordingsQueue: state.out.recordingsQueue.map( rec => {
+          if ( rec.sequenceId === sequenceId ) {
+            return { ...rec, length: rec.length + length, transcript };
+          } else {
+            return rec;
+          }
+        } )
+      } } ) );
+    }
+    
     // TODO: Remove duplication.
     case 'OUT_VIDEO_END':
       return modItem( state, action.toUser, state => {
