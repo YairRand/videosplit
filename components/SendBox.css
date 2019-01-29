@@ -1,0 +1,26 @@
+.SendBox-form {
+  display: flex;
+  border-top: 1px solid #AAA;
+}
+
+.SendBox-ask {
+  flex: 1;
+  width: 100px;
+  padding: 3px;
+  border: 0;
+  border-left: 1px solid #AAA;
+}
+
+.HandButton {
+  display: inline-block;
+  padding: 3px;
+  cursor: pointer;
+}
+
+.HandButton:hover {
+  box-shadow: 0 0 2px grey;
+}
+
+.HandButton.active {
+  box-shadow: 0 0 2px inset #000000;
+}

@@ -3,7 +3,9 @@ import './Home.css';
 import { connect } from 'react-redux';
 import recorder from '../recorder';
 import VideoBlock from './VideoBlock';
+import SendBox from './SendBox';
 import IntMods from '../interaction_modules/main';
+
 
 // TODO:
 // * Show timer (done) or live icon or what.
@@ -15,6 +17,10 @@ import IntMods from '../interaction_modules/main';
 // * Fix autoplay issues.
 // * Fix bug where everything explodes on unclicking ext's hand when no recording.
 // * Look into PiP API, see if it's usable.
+// ** Looks useful, but it's unofficial and not widely supported.
+// *** document.body.onblur = async e => { await ( vidElem ).requestPictureInPicture(); };
+//     document.body.onfocus = async e => { await document.exitPictureInPicture(); };
+// *** https://developers.google.com/web/updates/2018/10/watch-video-using-picture-in-picture
 // * Set up tests outline. Use jest. Have a server- and browser-in-a-box, with sockets.
 //   Dunno how to deal with hardware, or webrtc. Hold off on them for now, not important.
 // * Set up concatenating consecutive videos without losing transcripts or smoothness.
@@ -44,7 +50,11 @@ import IntMods from '../interaction_modules/main';
 //    Also works after show->stop video on FF-side.
 
 // * Fix FF MediaSource issues, incl outgoing (uses webm which is unsupported by
-//   Chrome) and incoming (breaks up and/or freezes after short time).
+//   Chrome) and incoming (breaks up and/or freezes after short time, when receiving from Chrome).
+//   (Chrome->Chrome works fine, FF->FF works fine. FF->Chrome breaks, Chrome->FF eventually freezes.)
+
+// * Stop the feed to those viewing recordings or delays, until shortly before 
+//   it ends. (Make sure there's no delay before starting up again.)
 
 console.log( 'START' );
 
@@ -256,6 +266,7 @@ const UserVideoBlock = connect( state => state )( class UserVideoBlock extends C
           src={ stream } onEnded={ e => {
             // Would this ever even have an end?
           } }
+          muted={ true /* Avoid echos of one's own voice */ }
           subBox={
             // Should the SendBox be always below the instructor, or one's own video?
             // (Probably partly depends on whether the corner is always the instr. Probably should be.)
@@ -424,48 +435,6 @@ const ExtVideoBlock = connect( ( state, ownProps ) => {
   />;
 } );
 
-/*
-TODO: Split off into separate component, with its own CSS file.
-*/
-const SendBox = connect(
-  null,
-  dispatch => ( { sendChat( text ) {
-    dispatch( { type: 'X_CHAT', chat: { text } } );
-  } } )
-)( function SendBox( { sendChat } ) {
-  var inputRef = useRef();
-  
-  // Still unsure whether this kind of singular chat entry box is the best way.
-  
-  return <div>
-    <form
-      onSubmit={ e => {
-        e.preventDefault();
-        
-        var text = inputRef.current.value;
-        if ( text && text.trim() ) {
-          sendChat( text );
-          
-          inputRef.current.value = '';
-        }
-      } }
-      style={{ display: 'flex', borderTop: '1px solid #AAA' }}
-    >
-      <HandButton />
-      <input ref={ inputRef } placeholder='Ask a question...' style={{ flex: 1, width: 100, padding: 3, border: 0, borderLeft: '1px solid #AAA' }} />
-    </form>
-  </div>;
-} );
-
-const HandButton = connect( state => ( { hand: state.hand } ) )( function HandButton( props ) {
-  return <div
-    onClick={ e => {
-      props.dispatch( { type: 'X_HAND', raised: !props.hand } );
-    } }
-    style={ { boxShadow: props.hand ? '0 0 2px inset #000000' : '', display: 'inline-block', padding: 3 } }
-  >Hand</div>;
-} );
-
 // Not sure canvas will ever be needed here. Recorded and live videos both work in video tags.
 class CanvasBlock extends Component {
   componentDidMount() {
@@ -491,13 +460,6 @@ class ChatBox extends Component {
   render() {
     return <div></div>;
   }
-}
-
-function VolumeMeter( props ) {
-  // TODO: Show how much audio is coming through the microphone.
-  // (Later: Should also be a thing showing volume from other streams.)
-  
-  props.stream;
 }
 
 export default Home;

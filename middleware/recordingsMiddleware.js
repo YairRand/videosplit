@@ -1,4 +1,4 @@
-// To avoid sending or recieving the same video twice, cache previously recieved
+// To avoid sending or receiving the same video twice, cache previously received
 // videos (in recordingsIn) and keep a list of videos previously sent (recordingsOut).
 // The server will fill in the blanks when necessary on the sending end, and
 // the recordingsIn object will fill in from the cache on this end.
@@ -22,7 +22,7 @@ var recordingsOut = {
     // }
   },
   sequences = {
-    
+    // [ sequenceId ]: { src, appendData }
   };
 
 // Currently blobs are stored as local state of UserVideoBlock.
@@ -47,11 +47,23 @@ var recordingsOut = {
 // (This would mean merging this mw with the socket mw.
 
 // Idea: Make this a prop. If we've already sent the video, don't pass it to the server.
-// If we recieve a video with a familiar blob in the set property, add the video from cache.
+// If we receive a video with a familiar blob in the set property, add the video from cache.
 
 
 export default function ( store ) {
   return next => action => {
+    
+    
+    if ( action.type === 'GET_SEQUENCE' ) {
+      // Currently unused.
+      // Eventually, browsers are going to switch over to using the
+      // srcObject = mediaSource format instead of src = URL.createObjectURL( mediaSource );
+      // VideoBlock can be modified to use this instead.
+      // TODO when that happens: Add .mediaSource to sequences.
+      let sequence = sequences[ action.sequenceId ];
+      return sequence ? sequence.mediaSource : false;
+    }
+    
     
     // This needs to run before socket to modify before it gets there, which it does.
     
@@ -67,7 +79,7 @@ export default function ( store ) {
         
         // These are sequences of bits of video which are being added shortly
         // after being produced.
-        // As each of these chunks are recieved, they're added to the sequences
+        // As each of these chunks are received, they're added to the sequences
         // MediaSource, which extends the video associated with the src that it
         // produced.
         
@@ -178,6 +190,13 @@ export default function ( store ) {
           }
         } else {
           // Sending out a video.
+          // These are { type: 'X_ACTION' }, before being split into OUT and IN.
+          
+          // Currently, videoData has src already set here, and this is (uselessly)
+          // sent out, and replaced on the other end. The local reducer needs
+          // the src, but the socket does not. TODO: Clean this up.
+          // (recorder itself sets the src.)
+          
           if ( recordingsOut[ id ] ) {
             // The server already has the data available. Don't re-send.
             ( { blob: {}, ...videoData } = videoData );

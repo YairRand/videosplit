@@ -112,6 +112,9 @@ export default function record( stream ) {
   recorder.start( 3000 );
   
   return {
+    /**
+     * 
+     */
     stop: function stopRecording() {
       return new Promise( resolve => {
         recorder.addEventListener( 'stop', () => {
@@ -121,7 +124,8 @@ export default function record( stream ) {
             recordedVideo = {
               type,
               ts: now.toString(),
-              // Why is this here?
+              // (This is here because recordingsMiddleware doesn't set local
+              // srcs. TODO: Cleanup.)
               src: URL.createObjectURL( newBlob ),
               // Hope this is accurate...
               // If not, maybe set a video to the url and read .duration.

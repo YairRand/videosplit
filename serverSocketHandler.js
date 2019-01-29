@@ -29,10 +29,10 @@ module.exports = {
       }
     }
     
-    function getRecording() {
+    function getRecording( action ) {
       if ( action.rec ) {
         var { id } = action.rec;
-        return recordings.find( recording => recording.id === id );
+        return allRecordings.find( recording => recording.id === id );
         
         // respond( recordings.find( recording => recording.id === id ) );
         
@@ -134,7 +134,7 @@ module.exports = {
         // TODO: Merge with above, somehow.
         
         // This needs to be split up. Broadcast can't work if some users need
-        // slightly different messages, eg whether to recieve a rec.
+        // slightly different messages, eg whether to receive a rec.
         
         sendToUsers(
           msg,

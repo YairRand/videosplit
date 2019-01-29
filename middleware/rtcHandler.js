@@ -13,9 +13,11 @@ export default function createRTCConnection( toUser, socket ) {
     tracks = [];
   
   socket.on( 'in', async msg => {
-    // We're interested in ld, reLd, and ic, but only when relevant to toUser.
+    // We're interested in messages typed RTC_LD, RTC_RELD, and RTC_IC, but only
+    // when sent from connection's partner.
     if ( msg.fromUser === toUser ) {
       switch( msg.type ) {
+        // Called by partner's negotiationneeded event.
         case 'RTC_LD': {
           // INCOMING FEEEEED
           let rsd = new RTCSessionDescription( msg.ld );
@@ -30,6 +32,7 @@ export default function createRTCConnection( toUser, socket ) {
           console.log( 'handled incoming feed. sending reLd back.' );
           break;
         }
+        // Called as response to RTC_LD, above.
         case 'RTC_RELD': {
           // Received response. Now what?
           let rsd = new RTCSessionDescription( msg.reLd );
@@ -38,6 +41,7 @@ export default function createRTCConnection( toUser, socket ) {
           
           break;
         }
+        // Called by partner's icecandidate event.
         case 'RTC_IC':
           pc.addIceCandidate( new RTCIceCandidate( msg.ic ) );
           break;

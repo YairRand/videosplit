@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import { useTrackVolume } from '../audioProcessor';
 
 // (Not sure how rewinding and such would work here...)
 // Does this really need to be aware of userId? Seems like it should be separate.
 const VideoBlock = function VideoBlock( props ) {
-  var { userId, subBox, leftIcon } = props;
+  var { userId, subBox, muted, leftIcon } = props;
     // src, time, onEnded, dispatch
     
   // Note: Self-views don't need the canvas, I think? Also student views.
@@ -37,7 +38,7 @@ const VideoBlock = function VideoBlock( props ) {
  * @param {String|MediaStream} props.src
  * @param {Number} props.time Number of seconds since start of video.
  */
-function BasicVideoBlock( { src, time, onEnded, videoId, size = 1, dispatch, transcript } ) {
+function BasicVideoBlock( { src, time, onEnded, videoId, size = 1, muted = false, dispatch, transcript } ) {
   // To make this a "presentational" component, videoId and dispatch could be
   // replaced with a ref, and the registration could be handled by VideoBlock.
   
@@ -147,10 +148,6 @@ function BasicVideoBlock( { src, time, onEnded, videoId, size = 1, dispatch, tra
     };
   }, [ src ] );
   
-  // useEffect( () => {
-  //   var ctx = canvasRef.current.width = ref.current.width;
-  // }, [] );
-  
   useEffect( () => {
     // TODO: Move this upward.
     // Maybe forwardRef or something to pass from above.
@@ -176,10 +173,15 @@ function BasicVideoBlock( { src, time, onEnded, videoId, size = 1, dispatch, tra
     <video
       width={ baseWidth } height={ baseHeight }
       ref={ ref }
-      style={{ position: 'relative', zIndex: 1 }}
+      style={{
+        position: 'relative',
+        zIndex: 1
+      }}
       onEnded={ onEnded }
       autoPlay={ true }
+      muted={ muted }
     />
+    <VolumeMeter vRef={ref} muted={muted} src={src} />
     { transcript && <SubtitlesBox transcript={ transcript.length ? transcript : [ 
       // Temporary, for testing.
       { word: 'blah', end: 1000 },
@@ -271,6 +273,28 @@ function TimeTicker( { startTime } ) {
   return <span className='TimeTicker'>
     { Math.floor( lengthInSeconds / 60 ) + ':' + Math.floor( lengthInSeconds % 60 ).toString().padStart( 2, 0 ) }
   </span>;
+}
+
+function VolumeMeter( { vRef, muted, src } ) {
+  var volume = useTrackVolume( vRef, muted, src );
+  
+  // TODO: Move CSS to stylesheet.
+  return <div
+    style={{
+      width: 20,
+      height: 10,
+      position: 'absolute',
+      top: 0
+    }}
+  >
+    <div style={{
+      width: Math.min( Math.sqrt( volume ), 20 ),
+      height: '100%',
+      backgroundColor: '#0000FF',
+    }}
+    >
+    </div>
+  </div>;
 }
 
 export default VideoBlock;
