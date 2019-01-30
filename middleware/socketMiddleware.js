@@ -9,17 +9,26 @@ export default store => {
     // as 'IN_ACTION' via the socket.
     if ( action.type.startsWith( 'X_' ) ) {
       
-      var type = action.type.substr( 2 );
+      let { callback, ..._action } = action,
+        type = action.type.substr( 2 ),
+        toEmit = 
+          // They'll receive it as 'IN', so...
+          { ..._action, type: 'IN_' + type, baseType: type };
       
-      console.log( 'emitting', { ...action } );
+      if ( callback ) {
+        toEmit.awaitingCallback = true;
+      }
+  
+      console.log( 'emitting', toEmit, callback );
+      
       socket.emit(
         action.toUser ? 'toUser' : 'out',
-        // They'll receive it as 'IN', so...
-        { ...action, type: 'IN_' + type, baseType: type }
+        toEmit,
+        callback
       );
       
       // baseType should be in meta, theoretically.
-      return next( { ...action, type: 'OUT_' + type, baseType: type, meta: { ...action.meta, dir: 'out' } } );
+      return next( { ..._action, type: 'OUT_' + type, baseType: type, meta: { ...action.meta, dir: 'out' } } );
     } else if ( action.type === 'EMIT' ) {
       // Currently unused.
       return socket.emit( 'out', action.payload );

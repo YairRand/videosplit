@@ -4,7 +4,7 @@
   "scripts": {
     "webpack": "webpack",
     "start": "node server.js",
-    "lint": "eslint reducers.js server.js serverSocketHandler.js recorder.js audioProcessor.js middleware/** components/**js",
+    "lint": "eslint reducers.js server.js serverSocketHandler.js recorder.js audioProcessor.js middleware/** interaction_modules/**js components/**js",
     "test": "jest"
   },
   "dependencies": {

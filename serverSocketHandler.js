@@ -51,7 +51,7 @@ module.exports = {
         recordings = {},
         selfData = { userId, socket, recordings };
       
-      function sendToUsers( msg, toUsers ) {
+      function sendToUsers( msg, toUsers, ack ) {
         msg.fromUser = userId;
         
         // This is ugly. TODO: Cleaner.
@@ -82,6 +82,10 @@ module.exports = {
             console.error( 'Socket unavailable. id = ', toUser.id, 'from = ', userId );
           }
         } );
+        
+        if ( msg.awaitingCallback ) {
+          ack();
+        }
       }
       
       // For testing.
@@ -110,7 +114,7 @@ module.exports = {
         fromUser: userId
       } );
       
-      socket.on( 'toUser', msg => {
+      socket.on( 'toUser', ( msg, ack ) => {
         // msg.fromUser = userId;
         
         var toUsers = Array.isArray( msg.toUser ) ? msg.toUser : [ msg.toUser ];
@@ -120,7 +124,8 @@ module.exports = {
           toUsers
             .map( toUser => users.find( user => user.userId === toUser ) )
             // In case a user disconnected since the msg was sent.
-            .filter( toUser => toUser )
+            .filter( toUser => toUser ),
+          ack
         );
         
         // users.forEach( target => {
@@ -130,7 +135,7 @@ module.exports = {
         // } );
       } );
       
-      socket.on( 'out', msg => {
+      socket.on( 'out', ( msg, ack ) => {
         // TODO: Merge with above, somehow.
         
         // This needs to be split up. Broadcast can't work if some users need
@@ -138,7 +143,8 @@ module.exports = {
         
         sendToUsers(
           msg,
-          users.filter( user => user !== selfData )
+          users.filter( user => user !== selfData ),
+          ack
         );
         
         console.log( 'outthing' );

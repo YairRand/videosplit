@@ -7,6 +7,7 @@ import { Provider, connect } from 'react-redux';
 import recordingsMiddleware from './middleware/recordingsMiddleware';
 import socketMiddleware from './middleware/socketMiddleware';
 import videoPlayerMiddleware from './middleware/videoPlayerMiddleware';
+import intModMiddleware from './middleware/intModMiddleware';
 
 var middleware = applyMiddleware(
     
@@ -28,6 +29,8 @@ var middleware = applyMiddleware(
     
     // Handles types 'REGISTER_VIDEO_PLAYER', 'UNREGISTER_VIDEO_PLAYER', and transforms prop 'getVideoCurrentTime'.
     videoPlayerMiddleware,
+    
+    intModMiddleware,
     
     // Log actions.
     store => next => action => {

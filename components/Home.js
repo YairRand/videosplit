@@ -364,7 +364,6 @@ const ExtVideoBlock = connect( ( state, ownProps ) => {
   var user = state.users.find( ( { userId } ) => userId === ownProps.userId );
   return user;
 } )( function ExtVideoBlock( props ) {
-// )( class extends Component {
   console.log( 442, props );
   
   var [ stream, setStream ] = useState();
