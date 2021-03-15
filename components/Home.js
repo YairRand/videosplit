@@ -39,9 +39,13 @@ import IntMods from '../interaction_modules/main';
 // ** Speedup: A/V can theoretically be captured using MediaStreamAudioSourceNode
 //    (using DelayNode/playbackRate, probably) and canvas (paint from element).
 //    Requires muting video element, perhaps.
+// *** Would that work for normal delays too? Would it be preferable?
+//     (Probably not, many-to-many via webrtc is heavy, having the server handle
+//     it is easier and doesn't come with a slowdown since we're delayed anyway.)
 // * 'User is typing'. Might not use, but write the code to have it available.
 // * Change regular timer display to also show time until end?
 // * Visual indicator of audio source.
+// ** Mostly done, need to decide styling.
 
 // * Fix Chrome->FF sendFeed breaking.
 // ** FF gives error message "ICE failed, add a STUN server and see about:webrtc for more details".
@@ -55,6 +59,9 @@ import IntMods from '../interaction_modules/main';
 
 // * Stop the feed to those viewing recordings or delays, until shortly before 
 //   it ends. (Make sure there's no delay before starting up again.)
+
+// * Start transmitting recordedVideo chunks (to the server, at least) as soon
+//   as available.
 
 console.log( 'START' );
 
@@ -93,6 +100,11 @@ const VideoGroup = ( () => {
         return { ...state, webcam: 'ON', stream: action.stream };
       case 'DISABLE_WEBCAM':
         return { ...state, webcam: 'OFF' }; // delete .stream?
+      case 'SEND_STREAM':
+        return { ...state, isSendingFeed: true };
+      case 'STOP_STREAM':
+        // Unused.
+        return { ...state, isSendingFeed: false };
     }
   };
   
@@ -130,6 +142,7 @@ const VideoGroup = ( () => {
     
     function sendFeed() {
       props.dispatch( { type: 'SEND_STREAM', stream: state.stream } );
+      localDispatch( { type: 'SEND_STREAM' } );
     }
     
     // Should the user block always be at the top? For explicit student views, maybe not...
@@ -141,6 +154,7 @@ const VideoGroup = ( () => {
         getWebcam={ getWebcam }
         stopWebcam={ stopWebcam }
         sendFeed={ sendFeed }
+        isSendingFeed={ state.isSendingFeed }
         stream={ state.stream }
         webcam={ state.webcam }
       />
@@ -172,13 +186,21 @@ function Buttons( props ) {
 // One must be able to switch seamlessly between the latter two, but both are necessary.
 // TODO: Figure out transitions from recording to live.
 // (Does this actually need to be a full component?)
-// TODO: Move a lot of this to UserVideoBlock.
-const UserVideoBlock = connect( state => state )( class UserVideoBlock extends Component {
+// TODO: Figure out which state props need to be passed here.
+// * Does this even need to be connected? Maybe just pass userId and dispatch via props?
+const UserVideoBlock = connect( state => ( { userId: state.userId } ) )( class UserVideoBlock extends Component {
   
   state = {
     recording: false,
     recordingStart: null,
-    recordedVideos: []
+    recordedVideos: [],
+    // Issue: This isn't completely binary. We could be streaming live to one
+    // participant, and delayed to another.
+    // TODO: Figure this out.
+    // TODO: Should this be here or in redux? Redux could also hold different
+    // statuses per out-stream...
+    // Here for now. Fiddle with later.
+    delayedStream: false
   };
   
   constructor( props ) {
@@ -191,13 +213,49 @@ const UserVideoBlock = connect( state => state )( class UserVideoBlock extends C
   }
   
   recordStream() {
-    this.recorder = recorder( this.props.stream );
+    // Zoom out. What needs to happen here?
+    // * A button is pressed. "Record".
+    // * Recording starts.
+    // * Time passes, during which chunks are going to the server.
+    // * A button is pressed. "Stop".
+    // ** - (This is needed for demoing, but isn't *really* relevant. In theory,
+    //      we should almost always be recording, I think? Just sending to some
+    //      on a delay. Recieving users might not need recording.)
+    // * A remaining chunk is passed, along with some instructions to the server.
+    // 
+    // Maybe just build more stuff into the recorder.
+    // Maybe do higher-level refactoring? Should this be divided into
+    // component/recorder/middleware like this?
+    // Write up some pseudocode.
+    
+    
+    this.recorder = recorder(
+      this.props.stream,
+      // Callback to send chunks to server as they come in, for performance reasons.
+      videoData => {
+        console.log( '_beh2', videoData );
+        this.props.dispatch( { type: 'X_VID_TODO', videoData: videoData } );
+      },
+      // Callback to send data to middleware (to store, process) after stopping recording.
+      videoData => {
+        console.log( '_beh5', videoData );
+        this.props.dispatch( { type: 'VID_TODO_STORE', videoData: videoData } );
+        // We can't store it here, because we might keep holding on to it after
+        // it's sent, which is wasteful.
+        // We can't store it in the middleware, because that doesn't know how
+        // to store videos without sending them immediately.
+        // We can't just send it immediately, because sometimes we need to be
+        // sending data about the video at the same time.
+        // It needs to wait until sending time, then disappear...
+        // Sounds like a job for the middleware. Set up a dedicated temp store there.
+      }
+    );
     
     this.setState( { recording: true } );
   }
   
   async stopRecording() {
-    
+    console.log( 'stopRecording', this.state );
     this.setState( {
       recording: false // TODO: Set to 'WAIT'
     } );
@@ -206,6 +264,8 @@ const UserVideoBlock = connect( state => state )( class UserVideoBlock extends C
       { blob: newBlob, ...videoData } = recordedVideo;
     
     this.setState( {
+      // ...It doesn't make sense to keep holding on to the blob even after it's
+      // sent...
       recordedVideos: [ ...this.state.recordedVideos, recordedVideo ]
     } );
     
@@ -219,7 +279,8 @@ const UserVideoBlock = connect( state => state )( class UserVideoBlock extends C
     this.setState( { showRecording: src } );
   }
   
-  sendRecording( recordedVideo ) {
+  // This function, and those associated with it, are a mess. TODO: Cleanup.
+  async sendRecording( recordedVideo ) {
     
     // This is the complicated one. The blob currently doesn't make it to the store,
     // but does need to be emitted at some point.
@@ -234,20 +295,61 @@ const UserVideoBlock = connect( state => state )( class UserVideoBlock extends C
     // TODO: When on delay, first cut off the slice, end it, and send it.
     // After dispatching SEND_REC, re-start the delay.
     
-    var { ...sendVideoData } = recordedVideo;
+    // Actually, should this always interrupt? Maybe set up separate cases for
+    // adding to after queue as opposed to interrupt.
     
-    this.props.dispatch( { type: 'X_SEND_REC', videoData: sendVideoData, time: Date.now() } );
+    // Wait, how should interrupt even work? If the stream is cut off, there
+    // isn't any extra time to build a delayed feed from...
+    // We want to end, send, start recording, and then start a delayed stream
+    // after X ms have passed. Can't start recording and send delayed after 0ms.
+    
+    var { ...sendVideoData } = recordedVideo,
+      interruptingDelayedStream = this.state.delayedStream;
+    
+    if ( interruptingDelayedStream ) {
+      await this.endDelayedStream();
+    }
+    
+    this._sendRecording( recordedVideo );
+    
+    
+    if ( interruptingDelayedStream ) {
+      this.recordStream();
+      this.startDelayedStream( 1000 );
+    }
     
   }
   
-  async sliceRecording() {
-    var slice = await this.recorder.slice();
+  _sendRecording( recordedVideo ) {
+    // recordingsMiddleware turns the raw data into usable blob-urls on both
+    // the local and recieving ends.
+    this.props.dispatch( { type: 'X_SEND_REC', videoData: recordedVideo, time: Date.now() } );
+  }
+  
+  saveRecording( recordedVideo ) {
+    this.props.dispatch( {
+      // WIP on the server side.
+      type: 'SERVER_SAVE_VIDEO',
+      videoData: { ...recordedVideo }
+    } );
+  }
+  
+  // TODO: Consider renaming 'sliceSequence'?
+  // Where should slicing normal recordings go? That's called from recorder,
+  // should there be a callback?
+  // Shouldn't most of this stuff be part of recorder.js?
+  async sliceRecording( isFinalSlice ) {
+    
+    console.log( 'sb send blob1', isFinalSlice );
+    isFinalSlice && console.log( 'sent last slice1' );
+    var slice = await this.recorder.slice( true );
     this.sendSlice( slice );
+    isFinalSlice && console.log( 'sent last slice' );
     return slice;
   }
   
   sendSlice( recordedVideo ) {
-    console.log( 'sendSlice', recordedVideo );
+    console.log( 'sb sendSlice', recordedVideo );
     this.props.dispatch( {
       type: recordedVideo.firstInSequence ? 'X_SEND_REC' : 'X_EXTEND_SEQ',
       videoData: { ...recordedVideo },
@@ -255,8 +357,41 @@ const UserVideoBlock = connect( state => state )( class UserVideoBlock extends C
     } );
   }
   
+  async startDelayedStream( delay ) {
+    // Should delay be handled on the server side? We can have different
+    // delays for different users.
+    
+    this.setState( {
+      delayedStream: true
+    } );
+    
+    var slice = () => this.sliceRecording(),
+      firstSlice = delay || await slice(),
+      sliceLength = delay || firstSlice.length,
+      timer = setInterval( slice, Math.max( delay / 2, 1000 ) || 1000 );
+    
+    this.delayedStreamTimer = timer;
+    
+  }
+  
+  async endDelayedStream() {
+    // TODO.
+    
+    clearInterval( this.delayedStreamTimer );
+    
+    this.setState( {
+      delayedStream: false,
+      recording: false
+    } );
+    
+    // Final slice.
+    // TODO: Make final slice system in recorder.js and recordingsMiddleware, not here.
+    // await this.sliceRecording( true );
+    this.sendSlice( await this.stopRecording() );
+  }
+  
   render() {
-    var { webcam, getWebcam, stopWebcam, sendFeed, stream } = this.props;
+    var { webcam, getWebcam, stopWebcam, sendFeed, isSendingFeed, stream } = this.props;
     
     return (
       <div style={{ marginBottom: '1em' }}>
@@ -286,42 +421,49 @@ const UserVideoBlock = connect( state => state )( class UserVideoBlock extends C
           >
             { { 'ON': 'Stop video', 'OFF': 'Show video', 'WAIT': '(Loading...)' }[ webcam ] }
           </button>
-          <button
-            onClick={ () => !this.state.recording ? this.recordStream() : this.stopRecording() }
-            disabled={ webcam !== 'ON' }
-          >
-            { this.state.recording ? 'Stop recording' : 'Record'}
-          </button>
           {
-            this.state.recording && <>
+            this.state.delayedStream ?  
+              <button
+                onClick={ () => this.endDelayedStream() }
+              >End delayed</button>
+              :
+              <button
+                onClick={ () => !this.state.recording ? this.recordStream() : this.stopRecording() }
+                disabled={ webcam !== 'ON' }
+              >
+                { this.state.recording ? 'Stop recording' : 'Record'}
+              </button>
+          }
+          {
+            this.state.recording && !this.state.delayedStream && <>
               <button
                 onClick={ async () => {
                   this.sendRecording( await this.stopRecording() );
                 } }
               >Stop and send</button>
-              <button onClick={ async () => {
-                // Should delay be handled on the server side? We can have different
-                // delays for different users.
-                
-                var slice = () => this.sliceRecording(),
-                  firstSlice = await slice(),
-                  timer = setInterval( slice, Math.max( firstSlice.length / 2, 1000 ) || 1000 );
-                
-              }}>Delayed</button>
+              <button
+                onClick={ () => this.startDelayedStream() }
+              >Delayed</button>
+              <button
+                onClick={ async () => {
+                  await this.stopRecording();
+                  this.recordStream();
+              } }
+              >Test</button>
             </>
           }
-          <button onClick={ sendFeed } disabled={ webcam !== 'ON' }>Send feed</button>
+          <button onClick={ sendFeed } disabled={ webcam !== 'ON' || isSendingFeed }>{ isSendingFeed ? 'Streaming...' : 'Send feed' }</button>
         </Box>
         {
           !!this.state.recordedVideos.length && (
             <Box>{
               this.state.recordedVideos.map( recordedVideo => {
-                // return <div onClick={ () => this.sendRecording( recordedVideo ) } key={ recordedVideo.ts }>Send recording</div>;
                 return <RecordingOptionsBox
-                  key={ recordedVideo.id }
+                  key={ recordedVideo.videoId }
                   recordedVideo={ recordedVideo }
                   play={ () => this.showRecording( recordedVideo ) }
                   send={ () => this.sendRecording( recordedVideo ) }
+                  save={ () => this.saveRecording( recordedVideo ) }
                   delete={ () => this.setState( { recordedVideos: this.state.recordedVideos.filter( vid => vid !== recordedVideo ) } ) }
                 />;
               } )
@@ -342,6 +484,11 @@ const UserVideoBlock = connect( state => state )( class UserVideoBlock extends C
 } );
 
 const RecordingOptionsBox = function RecordingOptionsBox( props ) {
+  // Something to get initial available recordings list?
+  // Longer term, the server should probably have a list. Also should be
+  // possible to get from local, maybe.
+  // Server provides list (files held by server), button can prepare it for playing.
+  
   var { recordedVideo } = props,
     lengthInSeconds = recordedVideo.length / 1000,
     timeDisplay = lengthInSeconds < 60 ?
@@ -352,6 +499,7 @@ const RecordingOptionsBox = function RecordingOptionsBox( props ) {
     <span className="ROB-time">{ timeDisplay }</span>
     <span className="ROB-button" onClick={ props.play }>Play</span>
     <span className="ROB-button" onClick={ props.send }>Send</span>
+    <span className="ROB-button" onClick={ props.save }>Save</span>
     <span className="ROB-button" onClick={ props.delete }>X</span>
   </div>;
 };
@@ -364,7 +512,7 @@ const ExtVideoBlock = connect( ( state, ownProps ) => {
   var user = state.users.find( ( { userId } ) => userId === ownProps.userId );
   return user;
 } )( function ExtVideoBlock( props ) {
-  console.log( 442, props );
+  console.log( 'ExtVideoBlock - props:', props );
   
   var [ stream, setStream ] = useState();
   
@@ -393,7 +541,10 @@ const ExtVideoBlock = connect( ( state, ownProps ) => {
     userId={ props.userId }
     src={ src }
     time={ props.time /* ? */ }
-    dispatch={ props.dispatch }
+    registerVideo={ ( data, videoId ) => {
+      props.dispatch( { type: 'REGISTER_VIDEO_PLAYER', data, videoId } );
+      return () => props.dispatch( { type: 'UNREGISTER_VIDEO_PLAYER', videoId } );
+    } }
     onEnded={ e => {
       console.log( 4422, e, props );
       // Issue: onEnded might be called when video is cut off due to disconnect.
@@ -455,10 +606,34 @@ function Box( props ) {
   return <div style={{ display: 'inline-block', textAlign: 'left', verticalAlign: 'top' }}>{ props.children }</div>;
 }
 
+// TODO.
 class ChatBox extends Component {
   render() {
     return <div></div>;
   }
+}
+
+function OnlineIndicator() {
+  var [ isOnline, setOnlineState ] = useState( navigator.onLine );
+  
+  useEffect( () => {
+    function nowOnline() {
+      setOnlineState( true );
+    }
+    function nowOffline() {
+      setOnlineState( false );
+    }
+    
+    addEventListener( 'online', nowOnline );
+    addEventListener( 'offline', nowOffline );
+    
+    return () => {
+      removeEventListener( 'online', nowOnline );
+      removeEventListener( 'offline', nowOffline );
+    }
+  })
+  
+  return <div>{ isOnline ? 'O' : 'X' }</div>;
 }
 
 export default Home;

@@ -29,7 +29,7 @@ export default function createRTCConnection( toUser, socket ) {
           await pc.setLocalDescription( answer );
           
           emit( 'toUser', { toUser, type: 'RTC_RELD', reLd: pc.localDescription } );
-          console.log( 'handled incoming feed. sending reLd back.' );
+          console.log( '[RTCPeerConnection] handled incoming feed. sending reLd back.' );
           break;
         }
         // Called as response to RTC_LD, above.
@@ -37,7 +37,7 @@ export default function createRTCConnection( toUser, socket ) {
           // Received response. Now what?
           let rsd = new RTCSessionDescription( msg.reLd );
           pc.setRemoteDescription( rsd );
-          console.log( 'reLd complete' );
+          console.log( '[RTCPeerConnection] reLd complete' );
           
           break;
         }
@@ -50,7 +50,7 @@ export default function createRTCConnection( toUser, socket ) {
   } );
   
   var connected = new Promise( resolve => {
-    console.log( 'createRTCConnection' );
+    console.log( '[RTCPeerConnection] createRTCConnection' );
     // Set handlers.
     Object.entries( {
       // Step 1: Send out offer.
@@ -63,7 +63,6 @@ export default function createRTCConnection( toUser, socket ) {
         
         // Send pc.localDescription to other users.
         emit( 'toUser', { toUser, type: 'RTC_LD', ld: pc.localDescription } );
-        console.log( 333, e, offer );
         
         // Can one sending get responses from multiple users?
         // No. Currently, this breaks if there are more than 2 users on.
@@ -78,16 +77,15 @@ export default function createRTCConnection( toUser, socket ) {
       // Step 3: Yay, we got a feed!
       track: e => {
         // SUCCESS!
-        console.log( 'SUCCESS', e );
+        console.log( '[RTCPeerConnection - SUCCESS]', e );
         if ( e.streams ) {
-          console.log( 422 );
           
           resolve( e.streams[ 0 ] );
           // dispatch( { type: 'RECEIVE_STREAM', fromUser: toUser, newSrc: e.streams[ 0 ] } );
         }
       }
     } ).forEach( ( [ evt, handler ] ) => pc.addEventListener( evt, e => {
-      console.log( 666, evt, e );
+      console.log( '[RTCPeerConnection - event]', evt, e );
       handler( e );
     } ) );
   } );

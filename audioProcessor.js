@@ -5,6 +5,11 @@ import React, { useState, useLayoutEffect } from 'react';
 // *** ...while not requiring multiple trackvolumes to be created.
 // * Delay/speedup incoming stream and play it.
 
+// * Keep track of when volume goes below or above certain level, record time,
+//   to notice any extended silences, which can be more easily sped through in
+//   recordings/delayeds. Probably as array [ [start,end], [start,end] ], etc
+//   and managed through setTimeouts and elem.currentTime
+
 // Relevant tests:
 // * Check whether sound is detected in live streams, recordings, and delayed streams.
 // * Check whether sound is blocked from being audible on any of the above.
@@ -79,7 +84,7 @@ function useTrackVolume( ref, muted, src ) {
         setOpenStatus( toOpen, src ) {
           // This is only called when open or src has changed, after rendering
           // the element.
-          console.log( 'setstream - openstatus', { toOpen, src, streams, source }, ref.current );
+          console.log( '[audioProcessor] setstream - openstatus', { toOpen, src, streams, source }, ref.current );
           
           if ( isOpen ) {
             // Disconnect the old source.
@@ -125,7 +130,7 @@ function useTrackVolume( ref, muted, src ) {
             isOpen = toOpen;
           }
           
-          console.log( 'setstream - g', audioContext.state, source, audioContext, analyser, source && source.numberOfOutputs );
+          console.log( '[audioProcessor] setstream - g', audioContext.state, source, audioContext, analyser, source && source.numberOfOutputs );
         }
       };
     } );

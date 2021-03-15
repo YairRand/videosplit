@@ -17,7 +17,7 @@ export default function LiveCursor( props ) {
         targetUser = { id: targetId };
         state = [ ...state, targetUser ];
       }
-      console.log( 'reducer', state );
+      // console.log( 'reducer', state );
       return state.map( user => {
         if ( user === targetUser ) {
           switch ( action.type ) {
@@ -56,7 +56,7 @@ export default function LiveCursor( props ) {
     ref={ ref }
     style={{ width: 100, height: 100, border: '1px solid blue', position: 'relative', overflow: 'hidden', float: 'right', clear: 'both' }}
     onMouseMove={ mouseMove }
-    onMouseOut={ mouseHide }
+    onMouseLeave={ mouseHide }
   >
     {
       state.filter( m => m.vis ).map( user => {

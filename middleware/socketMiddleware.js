@@ -9,7 +9,7 @@ export default store => {
     // as 'IN_ACTION' via the socket.
     if ( action.type.startsWith( 'X_' ) ) {
       
-      let { callback, ..._action } = action,
+      const { callback, ..._action } = action,
         type = action.type.substr( 2 ),
         toEmit = 
           // They'll receive it as 'IN', so...
@@ -28,10 +28,15 @@ export default store => {
       );
       
       // baseType should be in meta, theoretically.
-      return next( { ..._action, type: 'OUT_' + type, baseType: type, meta: { ...action.meta, dir: 'out' } } );
+      // dispatch or next? dispatch, so recordingsMiddleware can set src for
+      // 'OUT' for local use, without having it sent to server.
+      return store.dispatch( { ..._action, type: 'OUT_' + type, baseType: type, meta: { ...action.meta, dir: 'out' } } );
     } else if ( action.type === 'EMIT' ) {
       // Currently unused.
       return socket.emit( 'out', action.payload );
+    } else if ( action.type.startsWith( 'SERVER_' ) ) {
+      // Currently unused.
+      return socket.emit( 'out', { ...action, type: action.type.substr( 7 ) } );
     } else {
       switch ( action.type ) {
         case 'GET_STREAM':

@@ -30,6 +30,8 @@ var middleware = applyMiddleware(
     // Handles types 'REGISTER_VIDEO_PLAYER', 'UNREGISTER_VIDEO_PLAYER', and transforms prop 'getVideoCurrentTime'.
     videoPlayerMiddleware,
     
+    // Handles '[UN]REGISTER_INTMOD_DISPATCHER', and 'INTMOD_ACTION' by sending
+    // the actions to (previously registered) local dispatchers.
     intModMiddleware,
     
     // Log actions.

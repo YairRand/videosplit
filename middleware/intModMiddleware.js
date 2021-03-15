@@ -21,11 +21,13 @@ export default function ( store ) {
       if ( dispatcher ) {
         dispatcher( { ...action.localAction, fromUser: action.fromUser } );
       }
+      return;
     }
     
     if ( action.type === 'OUT_INTMOD_ACTION' ) {
       // Should this use .meta instead of .fromSelf, for consistency?
       intModDispatcher[ action.intModType ]( { ...action.localAction, fromSelf: true } );
+      return;
     }
     
     return next( action );

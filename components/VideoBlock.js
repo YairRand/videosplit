@@ -3,15 +3,16 @@ import { useTrackVolume } from '../audioProcessor';
 
 // (Not sure how rewinding and such would work here...)
 // Does this really need to be aware of userId? Seems like it should be separate.
+// I think this shouldn't have direct access to dispatch. Instead, pass
+// dispatch( REGISTER_VIDEO_PLAYER ) from ExtVideoBlock (the only place that uses it).
 const VideoBlock = function VideoBlock( props ) {
-  var { userId, subBox, muted, leftIcon } = props;
-    // src, time, onEnded, dispatch
+  var { userId, subBox, leftIcon, src, muted, time, transcript, onEnded, registerVideo } = props;
     
   // Note: Self-views don't need the canvas, I think? Also student views.
   // Don't spread props so much.
   
   return <div className='VideoBlock'>
-    <BasicVideoBlock { ...props } videoId={ props.userId } size={ 1 } />
+    <BasicVideoBlock { ...{ src, muted, time, transcript, onEnded, registerVideo } } videoId={ userId } size={ 1 } />
     <div className='VideoBlock-cornerBox'>
       { props.cornerBox && <>
         <BasicVideoBlock
@@ -33,22 +34,10 @@ const VideoBlock = function VideoBlock( props ) {
   </div>;
 };
 
-// This is the real 'raw' VideoBlock, with just src and such.
-/**
- * @param {String|MediaStream} props.src
- * @param {Number} props.time Number of seconds since start of video.
- */
-function BasicVideoBlock( { src, time, onEnded, videoId, size = 1, muted = false, dispatch, transcript } ) {
-  // To make this a "presentational" component, videoId and dispatch could be
-  // replaced with a ref, and the registration could be handled by VideoBlock.
-  
-  var ref = useRef(),
-    canvasRef = useRef(),
-    baseHeight = 200 * size,
-    baseWidth = 200 * size;
-  
-  // Should this use useLayoutEffect instead to avoid waiting?
-  // false && 
+// TODO: Separate into separate module.
+// Allow switching between video srcs without noticeable blinks, by painting to
+// the canvas behind. Also, play as soon as possible.
+function useDynamicVideo( src, time, size, registerVideo, ref, canvasRef, baseWidth, baseHeight ) {
   useLayoutEffect( () => {
     let elem = ref.current,
       canvas = canvasRef.current,
@@ -130,10 +119,12 @@ function BasicVideoBlock( { src, time, onEnded, videoId, size = 1, muted = false
         elem.currentTime = time;
         playVideo();
       } else {
-        console.log( 'removing src' );
-        // Undefined src. (Probably on init.)
-        // removeAttribute?
-        elem.removeAttribute( 'src' );
+        if ( elem.src ) {
+          console.log( 'removing src' );
+          // Undefined src. (Probably on init.)
+          // removeAttribute?
+          elem.removeAttribute( 'src' );
+        }
       }
     }
     
@@ -147,18 +138,33 @@ function BasicVideoBlock( { src, time, onEnded, videoId, size = 1, muted = false
       timer && clearTimeout( timer );
     };
   }, [ src ] );
+}
+
+// This is the real 'raw' VideoBlock, with just src and such.
+/**
+ * @param {String|MediaStream} props.src
+ * @param {Number} props.time Number of seconds since start of video.
+ */
+function BasicVideoBlock( { src, time, onEnded, videoId, size = 1, muted = false, registerVideo, transcript } ) {
+  // To make this a "presentational" component, videoId and dispatch could be
+  // replaced with a ref, and the registration could be handled by VideoBlock.
+  
+  var ref = useRef(),
+    canvasRef = useRef(),
+    baseHeight = 200 * size,
+    baseWidth = 200 * size;
+  
+  useDynamicVideo( src, time, size, registerVideo, ref, canvasRef, baseWidth, baseHeight );
   
   useEffect( () => {
-    // TODO: Move this upward.
-    // Maybe forwardRef or something to pass from above.
-    if ( dispatch ) {
+    // Should the data block also be moved into registerVideo, and just pass the
+    // ref instead of data?
+    if ( registerVideo ) {
       var data = {
         getCurrentTime: () => ref.current.currentTime
       };
-      
-      dispatch( { type: 'REGISTER_VIDEO_PLAYER', data, videoId } );
-      
-      return () => dispatch( { type: 'UNREGISTER_VIDEO_PLAYER', videoId } );
+    
+      return registerVideo( data, videoId );
     }
   }, [ videoId ] );
   
@@ -181,7 +187,7 @@ function BasicVideoBlock( { src, time, onEnded, videoId, size = 1, muted = false
       autoPlay={ true }
       muted={ muted }
     />
-    <VolumeMeter vRef={ref} muted={muted} src={src} />
+    <VolumeMeter vRef={ ref } muted={ muted } src={ src } />
     { transcript && <SubtitlesBox transcript={ transcript.length ? transcript : [ 
       // Temporary, for testing.
       { word: 'blah', end: 1000 },
@@ -214,8 +220,6 @@ function SubtitlesBox( { transcript, startTime } ) {
   
   // We only know when a word ends, not when it begins. Assume that words start
   // right after prior word ends.
-  
-  // transcript.length || ( transcript = [ { word: 'blah', end: 1000 } ] );
   
   const [ time, setTime ] = useState( startTime * 1000 ),
     index = transcript.findIndex( word => word.end > time ),
